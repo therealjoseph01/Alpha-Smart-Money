@@ -1,0 +1,17 @@
+# Seed wallets - the manual bootstrap (PRD 11).
+#
+# Paste 50-100 wallet addresses you found interesting on GMGN's leaderboards here.
+# From this point on the system does its own work: it watches every one of these
+# wallets on-chain, backfills their history, scores them (PRD 13), and promotes or
+# degrades them on observed evidence (PRD 15/36). The list is a starting point,
+# not a source of truth - a seeded wallet that scores badly never gets copied.
+#
+# Format:  <wallet_address>[,label][,note]
+# Blank lines and lines starting with # are ignored.
+#
+# Import with:  make seed          (or: python -m asm.cli seed seeds/wallets.txt)
+# Re-running is safe - it upserts.
+
+# Example (replace these):
+# 5yb3D1KBy13czATSYGLUbZrYJvRvFQiH9XYkAeG2nDzF,gmgn-7d-top,high winrate 7d
+# 8psNvWTrdNTiVRNzAgsou9kETXNJm2SXZyaKuJraVRtf,gmgn-smartmoney,consistent
