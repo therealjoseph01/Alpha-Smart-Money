@@ -62,6 +62,24 @@ async def discover_wallets(ctx: dict, limit: int | None = None,
         log.info("discovery_no_new_wallets", seen=len(candidates))
         return {"enabled": True, "discovered": len(candidates), "new": 0, "added": 0}
 
+    # Verify these are wallets before anything else touches them.
+    #
+    # GMGN's `maker` field SHOULD always be the wallet that executed a trade. This does
+    # not rely on that. The free suffix check runs on every candidate at zero cost, and
+    # the on-chain check runs on the ones that survive the profit screen - so a bad
+    # address cannot reach the watchlist through discovery any more than through the
+    # paste box. Assuming an upstream field is well-formed is what cost 16,000 credits.
+    from asm.ingest.verify import looks_like_launchpad_token
+
+    suffix_rejects = [w for w in fresh if looks_like_launchpad_token(w)]
+    if suffix_rejects:
+        log.warning("discovery_suffix_rejects", count=len(suffix_rejects),
+                    sample=[w[:8] for w in suffix_rejects[:5]])
+        fresh = [w for w in fresh if w not in set(suffix_rejects)]
+    if not fresh:
+        return {"enabled": True, "discovered": len(candidates), "new": 0, "added": 0,
+                "rejected_not_wallet": len(suffix_rejects)}
+
     # One bulk call for up to 100 wallets - the cheap screen.
     profits = await client.wallet_profits(fresh, period="30d")
 
@@ -80,7 +98,27 @@ async def discover_wallets(ctx: dict, limit: int | None = None,
         (passed if ok else rejected).append(
             {"wallet": wallet, "reason": reason, "profits": row})
 
-    passed = passed[:settings.gmgn_max_new_per_day]
+    passed = passed[:settings.target_roster_size * 2]
+
+    # On-chain verification, only for candidates that survived the free screen - one
+    # getAccountInfo each, and never for wallets we were never going to add.
+    not_wallets: list[dict] = []
+    if passed:
+        from asm.ingest.verify import verify_many
+
+        verdicts = await verify_many([e["wallet"] for e in passed])
+        kept = []
+        for entry in passed:
+            v = verdicts.get(entry["wallet"])
+            if v is not None and not v.ok:
+                not_wallets.append({"wallet": entry["wallet"], "kind": v.kind,
+                                    "reason": v.reason})
+                log.warning("discovery_rejected_non_wallet",
+                            wallet=entry["wallet"][:8], kind=v.kind)
+            else:
+                kept.append(entry)
+        passed = kept
+
     added: list[str] = []
 
     if auto_add and passed:
@@ -103,13 +141,15 @@ async def discover_wallets(ctx: dict, limit: int | None = None,
         # budget. Discovery is free and can run often; scoring is rationed.
 
     log.info("discovery_complete", seen=len(candidates), new=len(fresh),
-             passed=len(passed), rejected=len(rejected), added=len(added))
+             passed=len(passed), rejected=len(rejected), added=len(added),
+             not_wallets=len(suffix_rejects) + len(not_wallets))
     return {
         "enabled": True,
         "discovered": len(candidates),
         "new": len(fresh),
         "passed_screen": len(passed),
         "rejected": len(rejected),
+        "rejected_not_wallet": len(suffix_rejects) + len(not_wallets),
         "added": added,
         "rejection_samples": [
             {"wallet": r["wallet"][:8], "reason": r["reason"]} for r in rejected[:8]

@@ -123,3 +123,66 @@ def test_budget_switches_speed_when_roster_fills():
     needed = settings.target_roster_size * 10          # ~1 in 10 survives
     days = needed / settings.scoring_budget_bootstrap
     assert days <= 45, f"bootstrap would take {days:.0f} days"
+
+
+# ------------------------------------------ discovery must verify too (PRD 11)
+async def test_discovery_rejects_launchpad_tokens(redis, monkeypatch):
+    """GMGN's `maker` should always be a wallet. This does not rely on that.
+
+    Trusting an upstream field to be well-formed is what turned a five-address
+    watchlist into ~49,000 websocket notifications.
+    """
+    import asm.services.tasks.discovery as D
+
+    class FakeGmgn:
+        enabled = True
+
+        async def discover_wallets(self, *, limit=100, **kw):
+            return ["Bj1CbypNWSvA3VAX15m5y92RL3ujftj747yNjwqpump",
+                    "5yb3D1KBy13czATSYGLUbZrYJvRvFQiH9XYkAeG2nDzF"]
+
+        def discovery_meta(self):
+            return {}
+
+        async def wallet_profits(self, wallets, **kw):
+            # Only the non-token address should ever reach this call.
+            assert all(not w.endswith("pump") for w in wallets), \
+                "a launchpad token reached the profit screen"
+            return {w: {"realized_profit": "5000", "total_profit": "6000",
+                        "buy": 40, "sell": 35, "winrate": 0.55} for w in wallets}
+
+    monkeypatch.setattr(D, "gmgn", lambda: FakeGmgn())
+
+    async def no_wallets_known(*a, **kw):
+        class R:
+            @staticmethod
+            def all():
+                return []
+        return R()
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        async def execute(self, *a, **kw):
+            return await no_wallets_known()
+        def add(self, *a):
+            pass
+
+    monkeypatch.setattr(D, "session_scope", lambda: FakeSession())
+
+    async def fake_verify_many(addresses):
+        from asm.ingest.verify import Verdict
+        return {a: Verdict(a, True, "wallet", "ok") for a in addresses}
+
+    monkeypatch.setattr("asm.ingest.verify.verify_many", fake_verify_many)
+
+    async def fake_upsert(*a, **kw):
+        return None
+
+    monkeypatch.setattr(D.repo, "upsert_trader", fake_upsert)
+    monkeypatch.setattr(D.repo, "log_event", fake_upsert)
+
+    result = await D.discover_wallets({}, auto_add=True)
+    assert result["rejected_not_wallet"] >= 1
