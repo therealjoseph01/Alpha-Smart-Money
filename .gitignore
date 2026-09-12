@@ -15,3 +15,5 @@ seeds/wallets.txt
 .DS_Store
 logs/
 data/
+data/backup-*.db
+data/*.replaced-*

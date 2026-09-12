@@ -84,6 +84,15 @@ dashboard: ## open the control center in a browser
 kill: ## EMERGENCY: stop signing immediately
 	uv run python -m asm.cli kill
 
+db-backup: ## snapshot the database locally
+	@./scripts/db.sh backup
+
+db-push: ## copy this database to a server (make db-push HOST=user@ip)
+	@./scripts/db.sh push $(HOST) $(DIR)
+
+db-pull: ## copy a server's database to here (make db-pull HOST=user@ip)
+	@./scripts/db.sh pull $(HOST) $(DIR)
+
 test: ## run tests
 	uv run pytest -q
 
