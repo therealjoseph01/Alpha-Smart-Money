@@ -1,14 +1,14 @@
 """Repository checks in a transaction-local Postgres schema, rolled back in full."""
 from decimal import Decimal
-from uuid import uuid4
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from asm.config import settings
 from asm.db import models as M
 from asm.db import repo
+from asm.db.base import Base
 from asm.domain.enums import Action, OrderStatus
 from asm.domain.models import ApprovedOrder, Execution
 from asm.domain.money import SOL_MINT
@@ -16,36 +16,27 @@ from tests import factories as F
 
 
 @pytest.fixture
-async def db():
-    engine = create_async_engine(settings.database_url)
+async def db(tmp_path):
+    """An isolated database per test, on whichever backend is configured.
+
+    Previously this created a PostgreSQL SCHEMA and loaded one migration by filename -
+    both of which broke when the schema moved to SQLite. Building the tables from the
+    models instead is portable, has no hardcoded revision id, and cannot drift from
+    what the application actually declares.
+    """
+    url = settings.database_url
+    if url.startswith("sqlite"):
+        url = f"sqlite+aiosqlite:///{tmp_path / 'audit.db'}"
+
+    engine = create_async_engine(url)
     try:
-        async with engine.connect() as connection:
-            transaction = await connection.begin()
-            schema = 'asm_audit_' + uuid4().hex
-            try:
-                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-                await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
-                def migrate(sync_connection):
-                    import importlib.util
-                    from pathlib import Path
-
-                    from alembic.migration import MigrationContext
-                    from alembic.operations import Operations
-
-                    migration_path = (Path(__file__).parents[1] / 'alembic' / 'versions' /
-                                      '99f60d63a039_initial_schema.py')
-                    spec = importlib.util.spec_from_file_location('audit_migration', migration_path)
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-                    with Operations.context(MigrationContext.configure(sync_connection)):
-                        module.upgrade()
-
-                await connection.run_sync(migrate)
-                async with AsyncSession(bind=connection, expire_on_commit=False,
-                                        join_transaction_mode='create_savepoint') as session:
-                    yield session
-            finally:
-                await transaction.rollback()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            yield session
+        if not url.startswith("sqlite"):
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.drop_all)
     finally:
         await engine.dispose()
 
