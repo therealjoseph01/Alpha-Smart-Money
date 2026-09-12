@@ -42,18 +42,23 @@ cmd="${1:-}"; host="${2:-}"; dir="${3:-$DEFAULT_DIR}"
 remote_ours() {
   ssh "$host" "
     for n in \$(docker ps -a --filter name='${stack}' --format '{{.Names}}'); do
-      docker inspect -f '{{range .Mounts}}{{.Name}}@{{.Destination}} {{end}}' \"\$n\" 2>/dev/null \
-        | grep -Eq '(^| )[^ ]*asm-data@/app/data( |\$)' && echo \"\$n\"
+      docker inspect -f '{{range .Mounts}}{{.Name}} {{end}}' \"\$n\" 2>/dev/null \
+        | grep -q 'asm-data' && echo \"\$n\"
     done
   " | tr -d '\r'
 }
 
-remote_api() { remote_ours | grep -- '-api-1$' | head -1; }
+# `|| true` on both: with pipefail a grep that matches nothing looks exactly like a
+# connection failure, and reporting "could not reach the server" when the server
+# answered perfectly well sends you to debug the wrong thing entirely.
+remote_api() { remote_ours | grep -- '-api-1$' | head -1 || true; }
 
 # Stop every writer first. A snapshot of a file is only consistent if nothing is
 # appending to it, and SQLite's -wal holds committed data that is not yet in the main
 # file - which is why both it and -shm have to go when the file is replaced.
-remote_services() { remote_ours | grep -E -- '-(api|worker|decision|positions)-1$'; }
+remote_services() {
+  remote_ours | grep -E -- '-(api|worker|decision|positions)-1$' || true
+}
 
 case "$cmd" in
   backup)
@@ -102,8 +107,16 @@ case "$cmd" in
     [ -f "$DB" ] || die "$DB does not exist"
     stack="${3:-}"
 
-    api=$(remote_api) || die "could not reach $host"
-    [ -n "$api" ] || die "no api container found on $host (deploy first, or pass the stack name)"
+    ssh -o BatchMode=no -o ConnectTimeout=10 "$host" true \
+      || die "could not reach $host over ssh"
+
+    api=$(remote_api)
+    if [ -z "$api" ]; then
+      warn "no container on $host mounts a volume named asm-data"
+      warn "what is there:"
+      ssh "$host" "docker ps -a --format '  {{.Names}}' | head -20" >&2
+      die "deploy the compose stack first, or pass a stack name as the third argument"
+    fi
     ok "found $api"
 
     svcs=$(remote_services)
@@ -155,8 +168,9 @@ case "$cmd" in
     [ -n "$host" ] || die "usage: ./scripts/db.sh pull-docker user@host [stack-name]"
     stack="${3:-}"
 
-    api=$(remote_api) || die "could not reach $host"
-    [ -n "$api" ] || die "no api container found on $host"
+    ssh -o ConnectTimeout=10 "$host" true || die "could not reach $host over ssh"
+    api=$(remote_api)
+    [ -n "$api" ] || die "no container on $host mounts a volume named asm-data"
 
     ssh "$host" "docker exec '$api' sqlite3 /app/data/asm.db \".backup '/tmp/p.db'\" \
       && docker cp '$api:/tmp/p.db' /tmp/asm.pull.db && docker exec '$api' rm -f /tmp/p.db" \
