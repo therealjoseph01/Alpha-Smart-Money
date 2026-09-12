@@ -11,9 +11,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import Float, cast, func, select
+from sqlalchemy import func, select
 
 from asm.config import settings
+from asm.db import analytics
 from asm.db import models as M
 from asm.db.session import session_scope
 from asm.domain.money import ZERO
@@ -31,14 +32,8 @@ async def gate_effectiveness(ctx: dict, days: int = 30) -> dict:
     """
     since = datetime.now(UTC) - timedelta(days=days)
     async with session_scope() as s:
-        rows = (await s.execute(
-            select(func.unnest(M.TradeDecision.reason_codes).label("code"),
-                   func.count().label("n"))
-            .where(M.TradeDecision.decided_at >= since,
-                   M.TradeDecision.decision == "reject",
-                   M.TradeDecision.mode == settings.mode.value)
-            .group_by("code").order_by(func.count().desc())
-        )).all()
+        rows = await analytics.rejection_counts(
+            s, since=since, mode=settings.mode.value)
 
         total = (await s.execute(
             select(func.count()).select_from(M.TradeDecision)
@@ -60,7 +55,7 @@ async def gate_effectiveness(ctx: dict, days: int = 30) -> dict:
         "approval_rate_pct": str(
             (Decimal(approved) / Decimal(total) * 100).quantize(Decimal("0.01"))
             if total else ZERO),
-        "rejections_by_reason": [{"code": c, "count": n} for c, n in rows],
+        "rejections_by_reason": rows,
         "note": ("A dominant reason code is where your thresholds actually bind. "
                  "Loosen it only with a controlled experiment (PRD 46)."),
     }
@@ -70,40 +65,17 @@ async def latency_profile(ctx: dict, days: int = 7) -> dict:
     """PRD 17.2 - where the copy latency actually goes, stage by stage."""
     since = datetime.now(UTC) - timedelta(days=days)
     async with session_scope() as s:
-        row = (await s.execute(
-            select(
-                func.count(),
-                func.percentile_cont(0.5).within_group(
-                    cast(M.TradeDecision.observation_latency_ms, Float)),
-                func.percentile_cont(0.95).within_group(
-                    cast(M.TradeDecision.observation_latency_ms, Float)),
-                func.percentile_cont(0.5).within_group(
-                    cast(M.TradeDecision.analysis_latency_ms, Float)),
-                func.percentile_cont(0.95).within_group(
-                    cast(M.TradeDecision.analysis_latency_ms, Float)),
-                func.percentile_cont(0.5).within_group(
-                    cast(M.TradeDecision.total_copy_latency_ms, Float)),
-                func.percentile_cont(0.95).within_group(
-                    cast(M.TradeDecision.total_copy_latency_ms, Float)),
-            ).where(M.TradeDecision.decided_at >= since,
-                    M.TradeDecision.mode == settings.mode.value)
-        )).one()
+        p = await analytics.latency_percentiles(s, since=since, mode=settings.mode.value)
 
-    observation_p50 = row[1]
+    obs, ana = p["observation_ms"]["p50"], p["analysis_ms"]["p50"]
     advice = "insufficient data"
-    if observation_p50:
+    if obs:
         advice = (
             "Detection dominates - upgrade to Geyser/LaserStream gRPC."
-            if observation_p50 > (row[3] or 0) * 2
+            if obs > (ana or 0) * 2
             else "Analysis dominates - cache token risk and market state more aggressively."
         )
-    return {
-        "window_days": days, "samples": row[0],
-        "observation_ms": {"p50": row[1], "p95": row[2]},
-        "analysis_ms": {"p50": row[3], "p95": row[4]},
-        "total_copy_ms": {"p50": row[5], "p95": row[6]},
-        "advice": advice,
-    }
+    return {"window_days": days, **p, "advice": advice}
 
 
 async def trader_contribution(ctx: dict, days: int = 30) -> dict:

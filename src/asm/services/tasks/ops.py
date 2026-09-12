@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 
 from asm.config import settings
+from asm.db import analytics, repo
 from asm.db import models as M
-from asm.db import repo
 from asm.db.session import session_scope
 from asm.domain.money import ZERO
 from asm.logging import get_logger
@@ -97,12 +97,8 @@ async def daily_report(ctx: dict) -> dict:
             .group_by(M.TradeDecision.decision)
         )).all()
 
-        top_rejects = (await s.execute(
-            select(func.unnest(M.TradeDecision.reason_codes).label("code"), func.count())
-            .where(M.TradeDecision.decided_at >= since,
-                   M.TradeDecision.decision == "reject")
-            .group_by("code").order_by(func.count().desc()).limit(10)
-        )).all()
+        top_rejects = await analytics.rejection_counts(
+            s, since=since, mode=settings.mode.value, limit=10)
 
         closed = (await s.execute(
             select(func.count(), func.sum(M.PositionRow.realized_pnl_usd))
@@ -115,7 +111,7 @@ async def daily_report(ctx: dict) -> dict:
             "generated_at": datetime.now(UTC).isoformat(),
             "mode": settings.mode.value,
             "decisions": {d: c for d, c in decisions},
-            "top_rejection_reasons": [{"code": c, "count": n} for c, n in top_rejects],
+            "top_rejection_reasons": top_rejects,
             "positions_closed": closed[0] or 0,
             "realized_pnl_usd": str(closed[1] or ZERO),
             "equity_usd": str(snap.total_equity_usd),

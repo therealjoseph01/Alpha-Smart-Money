@@ -7,10 +7,10 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from asm.config import settings
+from asm.db import analytics
 from asm.db import models as M
 from asm.domain.enums import PositionStatus, TraderStatus
 from asm.domain.models import (
@@ -34,20 +34,18 @@ async def upsert_trader(
     s: AsyncSession, wallet: str, *, source: str = "seed", label: str | None = None,
     status: TraderStatus | None = None, meta: dict | None = None,
 ) -> M.Trader:
-    stmt = (
-        insert(M.Trader)
-        .values(
-            wallet_address=wallet, chain="solana", source=source, label=label,
-            status=(status or TraderStatus.DISCOVERED).value,
-            first_seen_at=datetime.now(UTC), meta=meta or {},
-        )
-        .on_conflict_do_update(
-            index_elements=[M.Trader.chain, M.Trader.wallet_address],
-            set_={"source": source, "label": label, "updated_at": datetime.now(UTC)},
-        )
-        .returning(M.Trader)
+    row, created = await analytics.upsert(
+        s, M.Trader,
+        match={"chain": "solana", "wallet_address": wallet},
+        values={"source": source, "label": label,
+                "status": (status or TraderStatus.DISCOVERED).value,
+                "first_seen_at": datetime.now(UTC), "meta": meta or {}},
     )
-    return (await s.execute(stmt)).scalar_one()
+    if not created:
+        row.source = source
+        row.label = label
+        row.updated_at = datetime.now(UTC)
+    return row
 
 
 async def get_trader(s: AsyncSession, wallet: str) -> M.Trader | None:
@@ -135,34 +133,39 @@ async def set_trader_status(s: AsyncSession, wallet: str, status: TraderStatus) 
 
 # ------------------------------------------------------------- source trades
 async def save_source_trade(s: AsyncSession, t: SourceTrade) -> uuid.UUID:
-    stmt = (
-        insert(M.SourceTradeRow)
-        .values(
-            id=t.id, chain=t.chain.value, wallet=t.wallet, signature=t.signature, slot=t.slot,
-            action=t.action.value, token_mint=t.token_mint, quote_mint=t.quote_mint,
-            token_amount_raw=Decimal(t.token_amount_raw),
-            quote_amount_raw=Decimal(t.quote_amount_raw),
-            source_price=t.source_price, source_value_usd=t.source_value_usd,
-            dedupe_key=t.dedupe_key, source_confirmed_at=t.source_confirmed_at,
-            detected_at=t.detected_at, observation_latency_ms=t.observation_latency_ms,
-            raw=t.raw,
-        )
-        .on_conflict_do_nothing(index_elements=[M.SourceTradeRow.dedupe_key])
-        .returning(M.SourceTradeRow.id)
+    """PRD 51. Dedupe key is unique, so a replayed stream is a no-op.
+
+    Select-then-insert rather than ON CONFLICT: the two dialects spell that differently,
+    and the guarantee that actually matters (never acting twice on one signal) lives in
+    the Redis claim before we ever get here.
+    """
+    existing = (await s.execute(
+        select(M.SourceTradeRow.id)
+        .where(M.SourceTradeRow.dedupe_key == t.dedupe_key)
+    )).scalar_one_or_none()
+    if existing:
+        return existing
+
+    row = M.SourceTradeRow(
+        id=t.id, chain=t.chain.value, wallet=t.wallet, signature=t.signature,
+        slot=t.slot, action=t.action.value, token_mint=t.token_mint,
+        quote_mint=t.quote_mint,
+        token_amount_raw=Decimal(t.token_amount_raw),
+        quote_amount_raw=Decimal(t.quote_amount_raw),
+        source_price=t.source_price, source_value_usd=t.source_value_usd,
+        dedupe_key=t.dedupe_key, source_confirmed_at=t.source_confirmed_at,
+        detected_at=t.detected_at, observation_latency_ms=t.observation_latency_ms,
+        raw=t.raw,
     )
-    got = (await s.execute(stmt)).scalar_one_or_none()
-    if got:
-        await s.execute(
-            update(M.Trader)
-            .where(M.Trader.wallet_address == t.wallet)
-            .values(last_trade_at=t.source_confirmed_at,
-                    trade_count=M.Trader.trade_count + 1)
-        )
-    if got is not None:
-        return got
-    return (await s.execute(
-        select(M.SourceTradeRow.id).where(M.SourceTradeRow.dedupe_key == t.dedupe_key)
-    )).scalar_one()
+    s.add(row)
+    await s.flush()
+    await s.execute(
+        update(M.Trader)
+        .where(M.Trader.wallet_address == t.wallet)
+        .values(last_trade_at=t.source_confirmed_at,
+                trade_count=M.Trader.trade_count + 1)
+    )
+    return row.id
 
 
 # ---------------------------------------------------------------- decisions
@@ -188,23 +191,34 @@ async def save_decision(s: AsyncSession, d: DecisionResult, trade: SourceTrade,
 
 # ------------------------------------------------------------------- orders
 async def save_order(s: AsyncSession, o: ApprovedOrder) -> None:
-    stmt = insert(M.Order).values(
-        id=o.id, idempotency_key=o.idempotency_key, decision_id=o.decision_id if o.position_id is None else None,
-        position_id=o.position_id, mode=_mode(), status="created", action=o.action.value,
-        trader_wallet=o.candidate.trader.wallet, token_mint=o.candidate.source_trade.token_mint,
+    """Idempotency key is unique; a duplicate resolves to the existing row.
+
+    `o.id` is rewritten to the persisted id so the execution written next references a
+    row that actually exists.
+    """
+    existing = (await s.execute(
+        select(M.Order.id).where(M.Order.idempotency_key == o.idempotency_key)
+    )).scalar_one_or_none()
+    if existing is not None:
+        o.id = existing
+        return
+
+    row = M.Order(
+        id=o.id, idempotency_key=o.idempotency_key,
+        decision_id=o.decision_id if o.position_id is None else None,
+        position_id=o.position_id, mode=_mode(), status="created",
+        action=o.action.value,
+        trader_wallet=o.candidate.trader.wallet,
+        token_mint=o.candidate.source_trade.token_mint,
         input_mint=o.input_mint, output_mint=o.output_mint,
         in_amount_raw=Decimal(o.in_amount_raw), size_usd=o.size_usd,
         slippage_bps=o.slippage_bps,
         exit_reason=o.exit_reason.value if o.exit_reason else None,
         reservation_id=o.reservation_id,
-    ).on_conflict_do_nothing(index_elements=[M.Order.idempotency_key])
-    result = await s.execute(stmt.returning(M.Order.id))
-    persisted_id = result.scalar_one_or_none()
-    if persisted_id is None:
-        persisted_id = (await s.execute(
-            select(M.Order.id).where(M.Order.idempotency_key == o.idempotency_key)
-        )).scalar_one()
-    o.id = persisted_id
+    )
+    s.add(row)
+    await s.flush()
+    o.id = row.id
 
 
 async def save_execution(s: AsyncSession, ex: Execution) -> None:
@@ -274,21 +288,35 @@ async def reduce_position(s: AsyncSession, position_id: uuid.UUID, *, ex: Execut
         detail={"signature": ex.signature},
     ))
 
-    values: dict[str, Any] = {
-        "amount_raw": M.PositionRow.amount_raw - Decimal(amount_raw),
-        "realized_pnl_usd": M.PositionRow.realized_pnl_usd + realized_pnl,
-        "current_price": ex.actual_price,
-        "status": PositionStatus.CLOSED.value if fully_closed else PositionStatus.OPEN.value,
-    }
+    # Arithmetic happens in Python, not in SQL.
+    #
+    # Money is stored as exact TEXT on SQLite (SQLAlchemy's Numeric goes through float
+    # there, which is not acceptable for balances). The consequence is that
+    # `column + value` renders as SQL `||` - string CONCATENATION - silently turning
+    # 25 + 25 into "2525". Read-modify-write is the only correct form, and it is also
+    # portable. The row is locked for the life of this transaction, and position writes
+    # are serialised through the position service, so no update is lost.
+    row = (await s.execute(
+        select(M.PositionRow).where(M.PositionRow.id == position_id)
+    )).scalar_one()
+
+    row.realized_pnl_usd = Decimal(row.realized_pnl_usd or 0) + realized_pnl
+    row.current_price = ex.actual_price
+    row.status = (PositionStatus.CLOSED if fully_closed else PositionStatus.OPEN).value
+
     if ladder_index is not None:
-        values["tp_levels_hit"] = func.array_append(M.PositionRow.tp_levels_hit, ladder_index)
+        hit = list(row.tp_levels_hit or [])
+        if ladder_index not in hit:
+            hit.append(ladder_index)
+        row.tp_levels_hit = hit
+
     if fully_closed:
-        values["closed_at"] = now
-        values["amount_raw"] = Decimal(0)
+        row.amount_raw = Decimal(0)
+        row.closed_at = now
     else:
-        # Cost basis shrinks proportionally so remaining PnL stays honest.
-        values["cost_basis_usd"] = M.PositionRow.cost_basis_usd - (proceeds_usd - realized_pnl)
-    await s.execute(update(M.PositionRow).where(M.PositionRow.id == position_id).values(**values))
+        row.amount_raw = Decimal(row.amount_raw or 0) - Decimal(amount_raw)
+        # Cost basis shrinks proportionally so the remaining P&L stays honest.
+        row.cost_basis_usd = Decimal(row.cost_basis_usd or 0) - (proceeds_usd - realized_pnl)
 
 
 async def open_positions(s: AsyncSession, mode: str | None = None) -> list[M.PositionRow]:

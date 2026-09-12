@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, select
 
 from asm.config import settings
+from asm.db import analytics
 from asm.db import models as M
 from asm.services.api.deps import DB
 
@@ -39,35 +40,23 @@ async def trade_detail(decision_id: str, db: DB):
 async def rejection_stats(db: DB, hours: int = Query(24, le=720)):
     """Which gate is actually doing the work. Tune thresholds from this, not intuition."""
     since = datetime.now(UTC) - timedelta(hours=hours)
-    rows = (await db.execute(
-        select(func.unnest(M.TradeDecision.reason_codes).label("code"), func.count())
-        .where(M.TradeDecision.decided_at >= since,
-               M.TradeDecision.decision == "reject",
-               M.TradeDecision.mode == settings.mode.value)
-        .group_by("code").order_by(func.count().desc())
-    )).all()
-    return {"hours": hours, "reasons": [{"code": c, "count": n} for c, n in rows]}
+    reasons = await analytics.rejection_counts(
+        db, since=since, mode=settings.mode.value)
+    return {"hours": hours, "reasons": reasons}
 
 
 @router.get("/trades/stats/latency")
 async def latency_stats(db: DB, hours: int = Query(24, le=720)):
     """PRD 17.2 - where the copy latency actually goes."""
     since = datetime.now(UTC) - timedelta(hours=hours)
-    row = (await db.execute(
-        select(
-            func.count(),
-            func.percentile_cont(0.5).within_group(M.TradeDecision.observation_latency_ms),
-            func.percentile_cont(0.5).within_group(M.TradeDecision.analysis_latency_ms),
-            func.percentile_cont(0.95).within_group(M.TradeDecision.analysis_latency_ms),
-            func.percentile_cont(0.5).within_group(M.TradeDecision.total_copy_latency_ms),
-            func.percentile_cont(0.95).within_group(M.TradeDecision.total_copy_latency_ms),
-        ).where(M.TradeDecision.decided_at >= since,
-                M.TradeDecision.mode == settings.mode.value)
-    )).one()
+    p = await analytics.latency_percentiles(db, since=since, mode=settings.mode.value)
     return {
-        "samples": row[0],
-        "observation_p50_ms": row[1], "analysis_p50_ms": row[2], "analysis_p95_ms": row[3],
-        "total_copy_p50_ms": row[4], "total_copy_p95_ms": row[5],
+        "samples": p["samples"],
+        "observation_p50_ms": p["observation_ms"]["p50"],
+        "analysis_p50_ms": p["analysis_ms"]["p50"],
+        "analysis_p95_ms": p["analysis_ms"]["p95"],
+        "total_copy_p50_ms": p["total_copy_ms"]["p50"],
+        "total_copy_p95_ms": p["total_copy_ms"]["p95"],
     }
 
 

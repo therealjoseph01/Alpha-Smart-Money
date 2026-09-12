@@ -4,8 +4,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
 
+from asm.db import analytics
 from asm.db import models as M
 from asm.db.session import session_scope
 from asm.domain.enums import Action
@@ -43,18 +43,12 @@ async def rebuild_wallet_graph(ctx: dict, days: int = LOOKBACK_DAYS) -> dict:
 
     async with session_scope() as s:
         for rel in relationships:
-            await s.execute(
-                insert(M.TraderRelationship)
-                .values(wallet_a=rel.wallet_a, wallet_b=rel.wallet_b,
-                        relation=rel.relation, strength=rel.strength,
-                        evidence=rel.evidence)
-                .on_conflict_do_update(
-                    index_elements=[M.TraderRelationship.wallet_a,
-                                    M.TraderRelationship.wallet_b,
-                                    M.TraderRelationship.relation],
-                    set_={"strength": rel.strength, "evidence": rel.evidence,
-                          "updated_at": datetime.now(UTC)},
-                )
+            await analytics.upsert(
+                s, M.TraderRelationship,
+                match={"wallet_a": rel.wallet_a, "wallet_b": rel.wallet_b,
+                       "relation": rel.relation},
+                values={"strength": rel.strength, "evidence": rel.evidence,
+                        "updated_at": datetime.now(UTC)},
             )
 
         # PRD 38 - linked wallets are one bet, so each gets a fraction of the budget.
