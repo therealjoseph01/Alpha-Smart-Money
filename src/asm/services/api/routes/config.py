@@ -16,15 +16,14 @@ async def get_config():
     """Every tunable field with its live value, bounds and explanation."""
     await rc.refresh(force=True)
     fields = rc.current()
-    order = ["Wallets", "Capital", "Risk", "Gates"]
+    order = ["Capital", "Risk", "Gates"]
     sections: dict[str, list[dict[str, Any]]] = {s: [] for s in order}
     for key, meta in fields.items():
         sections[meta["section"]].append({"key": key, **meta})
     return {
         "sections": [{"name": s, "fields": sections[s]} for s in order if sections[s]],
         "note": ("Saved to the database, applied to the running services within a few "
-                 "seconds. Reset restores the strategy defaults built into the "
-                 "code - it does not clear your wallet addresses."),
+                 "seconds. Reset restores the defaults built into the code."),
     }
 
 

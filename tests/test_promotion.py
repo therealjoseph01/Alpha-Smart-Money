@@ -134,3 +134,52 @@ async def test_the_auto_job_never_reaches_live(redis, monkeypatch):
     result = await auto_advance({})
     assert not result["changed"]
     assert settings.mode is Mode.SHADOW
+
+
+class TestWalletGate:
+    """The last gate before real money. It checks the shape of the two addresses, not
+    just that someone filled the variables in."""
+
+    GOOD = "CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54o"
+    OTHER = "2fg5QD1eD7rzNNCsvnhmXFm5hqNgwTTG8p7kQ6f3rx6f"
+
+    def _set(self, trading, treasury):
+        settings.trading_wallet_pubkey = trading
+        settings.treasury_wallet_pubkey = treasury
+
+    @pytest.fixture(autouse=True)
+    def _restore(self):
+        before = (settings.trading_wallet_pubkey, settings.treasury_wallet_pubkey)
+        yield
+        self._set(*before)
+
+    def test_passes_with_two_valid_distinct_wallets(self):
+        self._set(self.GOOD, self.OTHER)
+        ok, _ = promotion._wallets_verdict()
+        assert ok
+
+    def test_names_the_variable_that_is_missing(self):
+        self._set(self.GOOD, "")
+        ok, detail = promotion._wallets_verdict()
+        assert not ok
+        assert "TREASURY_WALLET_PUBKEY" in detail
+        assert "TRADING_WALLET_PUBKEY" not in detail
+
+    def test_rejects_the_same_wallet_twice(self):
+        """Harvesting into the trading wallet reports profit as banked while leaving
+        it entirely at risk - and nothing downstream would ever complain."""
+        self._set(self.GOOD, self.GOOD)
+        ok, detail = promotion._wallets_verdict()
+        assert not ok
+        assert "same address" in detail
+
+    @pytest.mark.parametrize("bad", [
+        "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0",   # an ethereum address
+        "CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54O",  # capital O for lowercase o
+        "tooshort",
+    ])
+    def test_rejects_a_malformed_address(self, bad):
+        self._set(bad, self.OTHER)
+        ok, detail = promotion._wallets_verdict()
+        assert not ok
+        assert "not a Solana address" in detail

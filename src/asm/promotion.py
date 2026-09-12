@@ -141,18 +141,57 @@ async def readiness() -> Readiness:
 
     if mode is Mode.SHADOW:
         gates = await _stage_gates("shadow", MIN_SHADOW_TRADES, MIN_SHADOW_DAYS)
-        gates.append(Gate(
-            "wallets", bool(settings.trading_wallet_pubkey
-                            and settings.treasury_wallet_pubkey),
-            "trading and treasury wallets configured"
-            if settings.trading_wallet_pubkey and settings.treasury_wallet_pubkey
-            else "TRADING_WALLET_PUBKEY and TREASURY_WALLET_PUBKEY are not set",
-        ))
+        ok, detail = _wallets_verdict()
+        gates.append(Gate("wallets", ok, detail))
         # Deliberately automatic=False. Everything above can be satisfied and this
         # still will not advance on its own.
         return Readiness(mode, Mode.LIVE, automatic=False, gates=gates)
 
     return Readiness(mode, None, gates=[Gate("live", True, "already live")])
+
+
+# base58 - Bitcoin's alphabet, which Solana uses. 0, O, I and l are absent from it
+# precisely because they are the characters people transcribe wrongly.
+_B58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+
+
+def _bad_address(value: str) -> str | None:
+    """Why this is not a Solana address, or None if it looks like one."""
+    stray = sorted(set(value) - _B58)
+    if stray:
+        return f"contains {', '.join(repr(c) for c in stray[:3])}"
+    if not 32 <= len(value) <= 44:
+        return f"is {len(value)} characters, not 32-44"
+    return None
+
+
+def _wallets_verdict() -> tuple[bool, str]:
+    """The last gate before real money, so it checks shape as well as presence.
+
+    A mistyped address that only fails at submission fails with the trade already
+    decided; a treasury equal to the trading wallet never fails at all - it just
+    reports harvested profit as banked while leaving every cent of it at risk.
+    """
+    trading = settings.trading_wallet_pubkey.strip()
+    treasury = settings.treasury_wallet_pubkey.strip()
+
+    missing = [name for name, value in
+               (("TRADING_WALLET_PUBKEY", trading),
+                ("TREASURY_WALLET_PUBKEY", treasury)) if not value]
+    if missing:
+        return False, f"{' and '.join(missing)} not set in the environment"
+
+    for name, value in (("TRADING_WALLET_PUBKEY", trading),
+                        ("TREASURY_WALLET_PUBKEY", treasury)):
+        why = _bad_address(value)
+        if why:
+            return False, f"{name} {why} - not a Solana address"
+
+    if trading == treasury:
+        return False, ("treasury and trading wallet are the same address - "
+                       "harvesting would not take profit off the table")
+
+    return True, "trading and treasury wallets configured"
 
 
 async def advance(force_target: Mode | None = None, actor: str = "auto") -> dict:
