@@ -150,6 +150,11 @@ async def add_wallets(_: Auth, text: str = Body(default="", embed=True),
         return {"ok": False, "error": "no valid Solana addresses found"}
 
     result = await import_wallets(entries, source="ui", enqueue_backfill=backfill)
+    if result["imported"] == 0 and result.get("rejected"):
+        first = result["rejected"][0]
+        return {"ok": False,
+                "error": f"{first['wallet'][:8]}… {first['reason']}",
+                **result}
     return {"ok": True, **result}
 
 

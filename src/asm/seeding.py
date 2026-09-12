@@ -111,10 +111,36 @@ def parse_seed_text(text: str) -> list[tuple[str, str | None, str | None]]:
 async def import_wallets(
     entries: list[tuple[str, str | None, str | None]],
     *, source: str = "ui", enqueue_backfill: bool = True,
+    verify_on_chain: bool = True,
 ) -> dict:
-    """Store wallets in the database. Shared by the file and UI paths."""
+    """Store wallets in the database, after checking they ARE wallets.
+
+    Base58 validity is not enough. A pump.fun token mint is a perfectly valid base58
+    address, and subscribing to one streams every trade of that token by anyone on
+    Solana - which once produced ~49,000 notifications from a five-address watchlist.
+
+    One getAccountInfo per address, at import only, is cheap insurance.
+    """
     if not entries:
-        return {"imported": 0, "total": 0, "wallets": []}
+        return {"imported": 0, "total": 0, "wallets": [], "rejected": []}
+
+    rejected: list[dict] = []
+    if verify_on_chain:
+        from asm.ingest.verify import verify_many
+
+        verdicts = await verify_many([w for w, _l, _n in entries])
+        keep = []
+        for wallet, label, note in entries:
+            v = verdicts.get(wallet)
+            if v is not None and not v.ok:
+                rejected.append({"wallet": wallet, "kind": v.kind, "reason": v.reason})
+                log.warning("rejected_non_wallet", wallet=wallet[:8], kind=v.kind)
+            else:
+                keep.append((wallet, label, note))
+        entries = keep
+
+    if not entries:
+        return {"imported": 0, "total": 0, "wallets": [], "rejected": rejected}
 
     imported: list[str] = []
     existing_count = 0
@@ -138,9 +164,10 @@ async def import_wallets(
     if enqueue_backfill and imported:
         await _enqueue_backfill(imported)
 
-    log.info("wallets_imported", source=source, total=len(entries), new=len(imported))
+    log.info("wallets_imported", source=source, total=len(entries),
+             new=len(imported), rejected=len(rejected))
     return {"imported": len(imported), "already_present": existing_count,
-            "total": len(entries), "wallets": imported}
+            "total": len(entries), "wallets": imported, "rejected": rejected}
 
 
 async def import_seed_file(path: str | Path, *, enqueue_backfill: bool = True) -> dict:

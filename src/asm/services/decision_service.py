@@ -22,7 +22,7 @@ from asm.adapters.helius import WalletSubscription, helius
 from asm.config import settings
 from asm.db import repo
 from asm.db.session import session_scope
-from asm.domain.enums import Action, EventType, OrderStatus
+from asm.domain.enums import Action, EventType, OrderStatus, TraderStatus
 from asm.domain.models import ApprovedOrder, DecisionResult, Execution, SourceTrade
 from asm.engine.decision import DecisionEngine
 from asm.engine.market import sol_price_usd
@@ -41,6 +41,14 @@ QUEUE_SIZE = 2048
 WORKERS = 8
 CONFIRM_WINDOW = 180  # seconds for PRD 20 multi-trader confirmation
 
+# A second line of defence behind import-time verification (see ingest/verify.py).
+# A watched address that streams like a firehose is a token mint or a program, not a
+# trader - no human wallet produces hundreds of transactions a minute. Left unchecked
+# this burns a monthly credit budget in hours, so the stream is cut and the address
+# suspended rather than merely logged.
+FIREHOSE_PER_MINUTE = 120
+FIREHOSE_GRACE_SECONDS = 60
+
 
 class DecisionService:
     def __init__(self):
@@ -57,6 +65,8 @@ class DecisionService:
         self._stop = asyncio.Event()
         self.dropped = 0
         self.processed = 0
+        self._seen: dict[str, int] = {}
+        self._window_started = 0.0
 
     # ------------------------------------------------------------------ setup
     async def refresh_wallets(self) -> None:
@@ -176,7 +186,43 @@ class DecisionService:
                 out.append(trade)
         return out
 
+    async def _check_firehose(self, wallet: str) -> bool:
+        """True if this address should be cut loose. Counts per rolling minute."""
+        now = asyncio.get_event_loop().time()
+        if now - self._window_started > FIREHOSE_GRACE_SECONDS:
+            self._window_started = now
+            self._seen = {}
+        self._seen[wallet] = self._seen.get(wallet, 0) + 1
+        if self._seen[wallet] < FIREHOSE_PER_MINUTE:
+            return False
+
+        log.error("firehose_detected", wallet=wallet[:8],
+                  per_minute=self._seen[wallet],
+                  action="suspending - this is not a trader wallet")
+        async with session_scope() as s:
+            await repo.set_trader_status(s, wallet, TraderStatus.SUSPENDED)
+            await repo.log_risk_event(
+                s, "FIREHOSE_ADDRESS",
+                f"{wallet[:8]} produced {self._seen[wallet]} transactions in a minute; "
+                "suspended. Almost certainly a token mint or program, not a wallet.",
+                severity="critical", detail={"wallet": wallet},
+            )
+        try:
+            from asm.alerts import Category, alerter
+            await alerter().critical(
+                Category.SYSTEM, "Watched address suspended: too much traffic",
+                body=f"{wallet[:8]}… streamed {self._seen[wallet]} transactions in a "
+                     "minute. That is a token or program, not a trader.",
+                dedupe_key=f"firehose:{wallet}", dedupe_seconds=3600)
+        except Exception:
+            pass
+        self.wallets.discard(wallet)
+        await self._restart_subscription()
+        return True
+
     async def _process_trade(self, trade: SourceTrade) -> None:
+        if await self._check_firehose(trade.wallet):
+            return
         if not await self.dedupe.claim_signal(trade.dedupe_key):
             return
 
