@@ -154,7 +154,15 @@ case "$cmd" in
       set -e
       docker cp /tmp/asm.push.db '$api:/app/data/asm.db'
       vol=\$(docker inspect -f '{{range .Mounts}}{{if eq .Destination \"/app/data\"}}{{.Name}}{{end}}{{end}}' '$api')
-      docker run --rm -v \"\$vol\":/data alpine rm -f /data/asm.db-wal /data/asm.db-shm
+      # docker cp writes as root. The image runs as uid 10001, so without this the
+      # application can read the database and not write to it - which surfaces much
+      # later as 'attempt to write a readonly database' on the first insert, long
+      # after the copy reported success.
+      docker run --rm -v \"\$vol\":/data alpine sh -c '
+        rm -f /data/asm.db-wal /data/asm.db-shm
+        chown 10001:10001 /data/asm.db
+        chmod 644 /data/asm.db
+      '
       rm -f /tmp/asm.push.db
     " || die "could not write into the volume"
     rm -f "$tmp"
