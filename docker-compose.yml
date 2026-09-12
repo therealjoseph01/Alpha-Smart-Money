@@ -78,8 +78,12 @@ services:
     networks:
       - default
       - dokploy-network
-    expose:
-      - "8000"
+    # Bound to loopback, deliberately. The dashboard is reachable on the server
+    # itself - which is what makes `ssh -L 8000:localhost:8000` work - but the port
+    # is not open to the internet. Public access goes through Traefik and a domain,
+    # so there is exactly one way in and it has TLS.
+    ports:
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
       interval: 30s
