@@ -30,21 +30,27 @@ snapshot() { sqlite3 "$1" ".backup '$2'" || die "could not snapshot $1"; }
 
 cmd="${1:-}"; host="${2:-}"; dir="${3:-$DEFAULT_DIR}"
 
-# The five containers share one volume mounted at /app/data. Rather than ask for the
-# volume's name - Dokploy prefixes it with a generated stack id - find the api
-# container and ask Docker where its /app/data comes from.
-remote_api() {
-  ssh "$host" "docker ps -a --filter name='${stack}' --format '{{.Names}}' \
-    | grep -- '-api-1\$' | head -1"
+# Identify OUR containers by a property no other stack on the server shares: a mount
+# at /app/data. Matching on the name alone is not safe enough - a server can host
+# several projects, and "anything ending in -api-1" would happily stop someone
+# else's. A name filter is accepted too, and narrows further.
+#
+# Returns: <name> for every container of this application.
+remote_ours() {
+  ssh "$host" "
+    for n in \$(docker ps -a --filter name='${stack}' --format '{{.Names}}'); do
+      docker inspect -f '{{range .Mounts}}{{.Destination}} {{end}}' \"\$n\" 2>/dev/null \
+        | grep -q '/app/data' && echo \"\$n\"
+    done
+  "
 }
+
+remote_api() { remote_ours | grep -- '-api-1$' | head -1; }
 
 # Stop every writer first. A snapshot of a file is only consistent if nothing is
 # appending to it, and SQLite's -wal holds committed data that is not yet in the main
 # file - which is why both it and -shm have to go when the file is replaced.
-remote_services() {
-  ssh "$host" "docker ps -a --filter name='${stack}' --format '{{.Names}}' \
-    | grep -E -- '-(api|worker|decision|positions)-1\$'"
-}
+remote_services() { remote_ours | grep -E -- '-(api|worker|decision|positions)-1$'; }
 
 case "$cmd" in
   backup)
@@ -99,6 +105,14 @@ case "$cmd" in
 
     svcs=$(remote_services)
     [ -n "$svcs" ] || die "no running services found"
+
+    # Say out loud which containers are about to be stopped. If another project is
+    # ever matched by mistake, this is where it is caught - before, not after.
+    echo "  these containers will be stopped and restarted:"
+    echo "$svcs" | sed 's/^/      /'
+    printf "  continue? [y/N] "
+    read -r reply </dev/tty
+    case "$reply" in [yY]*) ;; *) die "cancelled" ;; esac
 
     tmp="data/.push.db"
     snapshot "$DB" "$tmp"
