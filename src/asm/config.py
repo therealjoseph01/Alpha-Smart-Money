@@ -116,6 +116,11 @@ class Settings(BaseSettings):
     )
 
     env: str = "dev"
+
+    # Not in .env any more. This is the first-run default only: every service calls
+    # promotion.load_mode() at startup, and the stored mode wins from then on. The
+    # mode is changed from the dashboard, where the promotion gates can be enforced -
+    # an environment variable could have skipped straight to live on a restart.
     mode: Mode = Mode.PAPER
     log_level: str = "INFO"
     log_json: bool = False
