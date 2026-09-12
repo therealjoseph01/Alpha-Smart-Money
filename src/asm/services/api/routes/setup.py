@@ -175,17 +175,66 @@ async def remove_wallet(wallet: str, _: Auth, db: DB):
     return {"ok": True, "wallet": wallet, "status": "blacklisted"}
 
 
+# Balances are shown in the UI, which polls every 20 seconds. getBalance costs one
+# credit per wallet, so uncached that is ~43,000 credits a day to render a column.
+# Cached for ten minutes it is ~1,400 - and a trader's SOL balance does not meaningfully
+# change minute to minute anyway.
+BALANCE_TTL = 600
+
+
+async def _balances(wallets: list[str]) -> dict[str, str]:
+    """Cached SOL balances. Missing entries simply render as blank."""
+    if not wallets:
+        return {}
+    from asm.adapters.helius import helius
+    from asm.state.client import get_redis
+
+    r = get_redis()
+    out: dict[str, str] = {}
+    missing: list[str] = []
+    cached = await r.mget([f"asm:cache:balance:{w}" for w in wallets])
+    for wallet, value in zip(wallets, cached, strict=True):
+        if value is not None:
+            out[wallet] = value
+        else:
+            missing.append(wallet)
+
+    if missing:
+        h = helius()
+        for wallet in missing:
+            try:
+                bal = await h.get_balance_sol(wallet)
+            except Exception:
+                continue
+            out[wallet] = str(bal)
+            await r.set(f"asm:cache:balance:{wallet}", str(bal), ex=BALANCE_TTL)
+    return out
+
+
 @router.get("/wallets")
-async def list_wallets(db: DB, include_removed: bool = False):
+async def list_wallets(db: DB, include_removed: bool = False,
+                       balances: bool = True):
     """Everything on (or off) the watchlist, with why it is where it is."""
     q = select(M.Trader).order_by(desc(M.Trader.composite_score),
                                   desc(M.Trader.created_at))
     if not include_removed:
         q = q.where(M.Trader.status != TraderStatus.BLACKLISTED.value)
     rows = (await db.execute(q)).scalars().all()
+
+    bal = await _balances([t.wallet_address for t in rows]) if balances else {}
+    sol_price = "0"
+    if bal:
+        from asm.adapters.jupiter import jupiter
+        from asm.state.client import get_redis
+
+        cached = await get_redis().get("asm:cache:solprice")
+        sol_price = cached or str(await jupiter().sol_price_usd())
+
     return {
+        "sol_price_usd": sol_price,
         "wallets": [{
             "wallet": t.wallet_address,
+            "balance_sol": bal.get(t.wallet_address),
             "status": t.status,
             "source": t.source,
             "label": t.label,

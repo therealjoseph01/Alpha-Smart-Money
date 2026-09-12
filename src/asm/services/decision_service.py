@@ -20,6 +20,7 @@ from decimal import Decimal
 from asm import runtime_config
 from asm.adapters.helius import WalletSubscription, helius
 from asm.config import settings
+from asm.credits import BudgetGuard
 from asm.db import repo
 from asm.db.session import session_scope
 from asm.domain.enums import Action, EventType, OrderStatus, TraderStatus
@@ -67,6 +68,10 @@ class DecisionService:
         self.processed = 0
         self._seen: dict[str, int] = {}
         self._window_started = 0.0
+        # Notifications per wallet since startup, used only to identify the noisiest
+        # wallet when the credit budget is exceeded.
+        self._traffic: dict[str, int] = {}
+        self.budget = BudgetGuard()
 
     # ------------------------------------------------------------------ setup
     async def refresh_wallets(self) -> None:
@@ -116,6 +121,7 @@ class DecisionService:
         for i in range(WORKERS):
             self._tasks.append(asyncio.create_task(self._worker(i), name=f"decision-{i}"))
         self._tasks.append(asyncio.create_task(self._watchlist_poller(), name="watchlist"))
+        self._tasks.append(asyncio.create_task(self._budget_poller(), name="budget"))
 
         if not self.wallets:
             log.warning(
@@ -133,6 +139,41 @@ class DecisionService:
         for t in self._tasks:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
+
+    async def _budget_poller(self) -> None:
+        """Suspend the noisiest wallet if the measured burn would exhaust the plan.
+
+        Watching cost cannot be predicted from a wallet's trade count - a wallet
+        entangled in busy tokens generates far more notifications than it initiates.
+        So the rate is measured and acted on rather than estimated.
+        """
+        while not self._stop.is_set():
+            await asyncio.sleep(60)
+            try:
+                worst = await self.budget.check(self._traffic)
+                if not worst:
+                    continue
+                async with session_scope() as s:
+                    await repo.set_trader_status(s, worst, TraderStatus.SUSPENDED)
+                    await repo.log_risk_event(
+                        s, "CREDIT_BUDGET",
+                        f"{worst[:8]} suspended: measured burn would exhaust the "
+                        f"monthly credit plan. It produced "
+                        f"{self._traffic.get(worst, 0):,} notifications since startup.",
+                        severity="critical", detail={"wallet": worst},
+                    )
+                with contextlib.suppress(Exception):
+                    from asm.alerts import Category, alerter
+                    await alerter().critical(
+                        Category.SYSTEM, "Wallet suspended: credit budget",
+                        body=f"{worst[:8]}… was the noisiest watched wallet and the "
+                             "measured burn would exhaust the monthly plan.",
+                        dedupe_key=f"budget:{worst}", dedupe_seconds=3600)
+                self.wallets.discard(worst)
+                self._traffic.pop(worst, None)
+                await self._restart_subscription()
+            except Exception as exc:
+                log.warning("budget_check_failed", error=repr(exc))
 
     async def _watchlist_poller(self) -> None:
         while not self._stop.is_set():
@@ -186,6 +227,9 @@ class DecisionService:
                 out.append(trade)
         return out
 
+    def _record_traffic(self, wallet: str) -> None:
+        self._traffic[wallet] = self._traffic.get(wallet, 0) + 1
+
     async def _check_firehose(self, wallet: str) -> bool:
         """True if this address should be cut loose. Counts per rolling minute."""
         now = asyncio.get_event_loop().time()
@@ -221,6 +265,7 @@ class DecisionService:
         return True
 
     async def _process_trade(self, trade: SourceTrade) -> None:
+        self._record_traffic(trade.wallet)
         if await self._check_firehose(trade.wallet):
             return
         if not await self.dedupe.claim_signal(trade.dedupe_key):

@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ASM · Control Center</title>
 <style>
-/* Palette: validated categorical slots + status ramp on surface #12151c.
-   Profit/loss is NEVER colour-alone - red vs green measures deutan ΔE 4.1, so every
-   signed value also carries a ▲/▼ glyph and an explicit sign. */
+/* Shared components. Profit/loss uses directional glyphs as well as colour. */
 :root{
   --bg:#0d1016; --surface:#12151c; --panel:#171b24; --panel2:#1e232e; --raised:#242b38;
   --line:#262c38; --line2:#333b4a; --grid:#1f2531;
@@ -270,24 +268,167 @@ textarea:focus{outline:none;border-color:var(--s1);box-shadow:0 0 0 3px rgba(57,
 @keyframes sh{to{background-position:-200% 0}}
 .err{background:rgba(208,59,59,.12);border:1px solid rgba(208,59,59,.3);color:#ef8d8d;
      padding:11px 14px;border-radius:var(--r-sm);margin-bottom:14px;font-size:13px}
+
+/* Responsive application shell. No external fonts or runtime dependencies. */
+:root{--bg:#101213;--surface:#141617;--panel:#1a1d1e;--panel2:#25292a;--raised:#303637;
+ --line:#2b3031;--line2:#414849;--grid:#2b3132;--ink:#f2f4ed;--ink2:#b0b8b4;--muted:#929c97;
+ --s1:#d5f88a;--s2:#eebd7f;--s3:#80ccb3;--good:#a4e27f;--critical:#e36f75;
+ --seq1:#37604a;--seq2:#8bcda5;--seq3:#a6ddb9;--seq4:#c1ebce;--r:18px;--r-sm:10px;
+ --shadow:0 12px 36px -24px #000; color-scheme:dark}
+body{font-size:14px;letter-spacing:.005em}
+button,input,textarea{touch-action:manipulation}
+button{min-height:44px}
+button:focus-visible,a:focus-visible{outline:2px solid var(--s1);outline-offset:4px}
+[hidden]{display:none!important}
+.skip{position:fixed;left:16px;top:-80px;z-index:120;background:var(--s1);color:#142015;padding:12px 20px;border-radius:10px}
+.skip:focus{top:12px}
+.app{padding-left:224px}
+.sidebar{position:fixed;inset:0 auto 0 0;width:224px;background:var(--surface);border-right:1px solid var(--line);z-index:30;display:flex;flex-direction:column;padding:30px 16px 20px}
+.logo{padding:0 10px;gap:12px;font-size:17px;letter-spacing:-.6px}
+.logo i,#lock .mark{background:var(--s1);color:#162414;border-radius:12px;box-shadow:none}
+.logo i{width:36px;height:36px;font-size:20px;flex:none}
+.logo small{display:block;font-size:10px;color:var(--muted);letter-spacing:2px;font-weight:500;text-transform:uppercase;margin-top:2px}
+.nav-label{color:var(--muted);font-size:10px;font-weight:600;letter-spacing:1.7px;padding:44px 14px 14px}
+nav{flex-direction:column;background:none;border:0;padding:0;gap:7px;overflow:visible}
+nav button{display:flex;gap:12px;align-items:center;text-align:left;padding:12px 14px;border:1px solid transparent;border-radius:11px;color:var(--ink2);font-size:13px}
+nav button svg{width:19px;height:19px;flex:none;stroke:currentColor;stroke-width:1.65;fill:none;stroke-linecap:round;stroke-linejoin:round}
+nav button.on{color:var(--s1);background:#223321;border-color:#344a2e}
+nav button:hover{background:var(--panel2)}
+.sidebar-foot{margin-top:auto;padding:20px 10px 0}
+.network{font-size:12px;display:flex;align-items:center;gap:8px;color:var(--ink2);padding-bottom:18px;border-bottom:1px solid var(--line)}
+.network .dot{color:#9ad6bd}
+#signout{margin-top:14px;width:100%;text-align:left;background:none;border:0;color:var(--ink2)}
+.top{position:relative;background:var(--bg);padding:22px 32px;min-height:86px;gap:10px}
+.workspace{font-size:12px;color:var(--muted);margin-right:12px}
+.equity{margin-left:auto;gap:10px}
+.equity b{font-size:14px}.top .spacer{display:none}
+.acts{gap:8px;flex-wrap:wrap;margin-left:8px}
+.btn{padding:10px 16px;font-weight:600;border-radius:10px;font-size:12px;min-height:44px}
+.btn.sm{padding:9px 13px;font-size:12px}
+.btn.pri,#lock button{background:var(--s1);border-color:var(--s1);color:#172515}
+.btn.pri:hover:not(:disabled),#lock button:hover:not(:disabled){background:#d0ffaa;border-color:#d0ffaa}
+.btn.danger{background:#2e1d20;border-color:#593239;color:#ffa1a6}
+.chip{font-size:10px;padding:7px 9px;letter-spacing:.05em}
+.chip.paper{color:#c1eea3;background:#223321;border-color:#3a5130}
+.chip.on{color:#a5ddbd;background:#1b3025;border-color:#355b42}
+main{max-width:1620px;padding:30px 32px 48px;margin:0 auto;min-width:0}
+.pagehead{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:28px}
+.eyebrow{text-transform:uppercase;letter-spacing:2px;font-size:10px;color:var(--s1);font-weight:600;margin-bottom:8px}
+.pagehead h1{font-size:32px;font-weight:550;letter-spacing:-1.1px;line-height:1.2;margin:0 0 9px}
+.pagehead p{color:var(--ink2);margin:0;font-size:13px;max-width:58ch}
+.page-tools{display:flex;align-items:center;gap:12px;flex-shrink:0}
+#updated{font-size:11px;color:var(--muted)}
+#refresh{display:flex;align-items:center;gap:8px;background:var(--surface)}
+#refresh svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7}
+#view{display:grid;gap:20px;min-width:0}#view>*{min-width:0}
+.hero{grid-template-columns:minmax(250px,.95fr) minmax(0,1.75fr);gap:20px;margin:0}
+.hero>.panel:first-child{background:radial-gradient(ellipse at 95% 0%,#2e482b 0%,#19271d 55%,#142018 100%);border-color:#425a34;display:flex;flex-direction:column}
+.hero>.panel:first-child h2{border-bottom:none;color:#d3e7c4}
+.hero>.panel:first-child .note{margin-top:auto;background:#172319;color:#b1c1a6;border-color:#34472c;font-size:11px}
+.panel{box-shadow:var(--shadow);min-width:0}
+.panel>h2{padding:20px 22px;font-size:13px;font-weight:550;letter-spacing:0;text-transform:none;color:var(--ink);min-height:59px;flex-wrap:wrap;line-height:1.4;gap:8px}
+.panel>h2 .r{font-family:var(--sans);color:var(--ink2);font-size:11px}
+.big{padding:14px 22px 24px}.big .lbl{font-size:11px;color:#b1c1a6;letter-spacing:.02em;text-transform:none}
+.big .num{font-family:var(--sans);font-size:clamp(30px,3vw,46px);font-weight:500;letter-spacing:-1.8px;margin:9px 0 15px;overflow-wrap:anywhere}
+.big .sub{font-size:11px;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:0}
+.stat{padding:20px 22px;border-radius:14px;position:relative;min-width:0;background:linear-gradient(125deg,var(--panel),#111a17)}
+.stat:before{content:'';width:6px;height:6px;border-radius:50%;background:var(--s3);position:absolute;right:20px;top:25px;opacity:.7}
+.stat .lbl{font-size:11px;text-transform:none;letter-spacing:.01em;padding-right:12px}
+.stat .num{font-family:var(--sans);font-size:25px;font-weight:500;letter-spacing:-.7px;margin-top:14px;overflow-wrap:anywhere}
+.stat .num>.mono{font-family:inherit;font-size:inherit}.stat .sub{font-size:11px;margin-top:8px}
+.cols{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:20px}
+.up{color:#b7eb91}.down{color:#ffa1a6}
+.scroll{max-width:100%;scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+th{padding:14px 20px;background:#101a16;font-size:10px;color:var(--ink2)}td{padding:16px 20px;font-size:12px}
+.scroll:focus-visible{outline-offset:-3px}.mono{font-size:12px}
+.tag{font-size:9px;border-radius:6px;padding:6px 8px;letter-spacing:.06em}
+.tag.copy,.tag.active,.tag.open{background:#253821;color:#b7eb91}
+.tag.discovered,.tag.candidate,.tag.analyzing{background:#1d3330;color:#9dd9d0}
+.empty{padding:44px 24px;min-height:206px;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.empty .ico{display:grid;place-items:center;width:46px;height:46px;border:1px solid var(--line2);border-radius:14px;font-size:22px;color:var(--s1);background:var(--panel2);opacity:1}
+.empty .t{font-weight:500;margin:16px 0 6px}.empty .d{font-size:12px;max-width:34ch;color:var(--muted)}
+.chart-dates{display:flex;justify-content:space-between;color:var(--muted);font-size:10px;padding:0 8px}.chartwrap{padding:10px 18px 14px}.chartwrap .empty{min-height:196px;padding:20px}.chartwrap .empty .ico{width:36px;height:36px;font-size:17px}
+.pad{padding:22px}.note{padding:16px 22px;font-size:12px}.row{gap:10px}
+textarea{padding:15px;font-size:13px;min-height:145px;border-radius:12px}
+.cfg,.job{padding:20px 22px;gap:16px}.cfg input{min-height:44px}.cfg .h,.job .h{font-size:12px}
+.savebar{padding:16px 22px;z-index:4;bottom:0}.savebar .msg{flex:1;min-width:120px}
+#notstarted .panel{border-radius:14px;background:#211f16}#notstarted .pad{padding:16px 20px}
+#notstarted .msg{font-size:12px}
+#lock{background:radial-gradient(ellipse at 50% 0%,#223621 0%,var(--bg) 65%)}
+#lock form{max-width:410px;padding:36px;background:var(--panel);border:1px solid var(--line2);border-radius:24px;box-shadow:0 30px 100px #0005;gap:16px}
+#lock .mark{width:48px;height:48px;font-size:26px;margin-bottom:12px}
+#lock h1{font-size:27px;font-weight:500;letter-spacing:-.8px}#lock p{font-size:13px}
+#lock label{font-size:12px;color:var(--ink2)}#lock input{min-height:48px;margin-top:-8px;font-family:var(--sans);font-size:16px}
+#lock button{min-height:48px}#lock .hint{text-align:center;font-size:11px}
+#modal .dialog{border-radius:20px;max-height:calc(100dvh - 40px);overflow:auto}
+#modal .mhead{padding:24px 24px 0}#modal .mbody{padding:14px 24px 6px}#modal .mfoot{padding:20px 24px 24px}
+#toasts{max-width:min(380px,calc(100vw - 32px));right:16px;bottom:20px}
+@media(min-width:1600px){.stats{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media(max-width:1200px){.app{padding-left:192px}.sidebar{width:192px;padding-inline:12px}.logo{font-size:15px;gap:9px}.top{padding:18px 24px}.workspace{display:none}main{padding:26px 24px}.equity{display:none}.acts{margin-left:auto}.page-tools{flex-direction:column;align-items:flex-end}.cols{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:900px){.app{padding-left:0}.sidebar{position:sticky;top:0;width:100%;padding:0;display:block;border-right:0;border-bottom:1px solid var(--line);background:#0f1715f5;backdrop-filter:blur(16px)}.sidebar>.logo,.nav-label,.sidebar-foot{display:none}nav{flex-direction:row;overflow-x:auto;padding:8px 16px;gap:6px}nav button{flex-shrink:0;padding:10px 12px;gap:7px;font-size:12px}nav button svg{width:17px;height:17px}.top{padding:16px 20px;min-height:auto}.workspace{display:block;margin-right:auto;font-size:13px;color:var(--ink);font-weight:600}.acts{width:100%;margin:2px 0 0}.mobile-signout{display:block!important;margin-left:auto}.hero{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}main{padding:24px 20px}.pagehead h1{font-size:28px}.pagehead p{font-size:12px}.page-tools{gap:8px}.stats{gap:12px}}
+@media(max-width:600px){.top{padding:14px 16px}.workspace{font-size:12px}.chip{font-size:9px;padding:6px 8px}.acts{gap:6px}.btn.sm{font-size:11px;padding:9px 11px}.acts .danger{margin-left:auto}.mobile-signout{font-size:11px!important;padding-inline:9px!important}.sidebar nav{padding:7px 12px}.pagehead{align-items:flex-start;gap:12px;margin-bottom:22px}.pagehead h1{font-size:27px}.pagehead p{font-size:12px;line-height:1.6}.page-tools{padding-top:22px}#updated{display:none}#refresh{padding:10px;font-size:0;gap:0;min-width:44px;justify-content:center}#refresh svg{width:18px;height:18px}main{padding:24px 16px 32px}.hero{grid-template-columns:minmax(0,1fr);gap:16px}.big .num{font-size:42px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.stat{padding:16px}.stat:before{right:15px;top:21px}.stat .num{font-size:23px}.stat .sub{font-size:10px}.panel>h2{padding:17px 18px}.pad,.note{padding:18px}.cols,#view{gap:16px}.cfg,.job{padding:18px;grid-template-columns:minmax(0,1fr)}.cfg input{width:calc(100% - 40px);max-width:240px;font-size:16px}textarea{font-size:16px}.row .btn{flex:1}.note{overflow-wrap:anywhere}.savebar{padding:14px}.savebar .btn{flex:1}#lock{padding:16px}#lock form{padding:28px 24px}.job .btn{width:100%}th,td{padding:14px 16px}.empty{padding:32px 20px}.scroll{background:linear-gradient(90deg,transparent,var(--panel)) right/14px 100% no-repeat}.big .sub{font-size:12px}#notstarted .pad>div{min-width:0!important;flex-basis:100%!important}#startbig{width:100%}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+.mobile-signout{display:none}
+
+/* Portfolio workspace: neutral surfaces, chart-led hierarchy, lime allocation. */
+body{background:radial-gradient(ellipse at 80% 0%,#20251b55,transparent 42%),var(--bg)}
+.sidebar{background:#141617}.logo{font-weight:600;letter-spacing:-.8px}.logo i{border-radius:11px;box-shadow:0 0 24px #d5f88a10}.logo svg,#lock .mark svg{width:28px;height:28px}.logo small{font-size:8px;letter-spacing:1.8px;margin-top:5px}
+.nav-label{font-size:9px;letter-spacing:2px;padding-top:52px}nav{gap:9px}nav button{font-size:13px;padding-block:13px;transition:background .18s,color .18s,transform .18s}nav button.on{background:#d5f88a;color:#232a1b;border-color:#d5f88a;box-shadow:0 4px 20px #0002}nav button:not(.on):hover{transform:translateX(3px);background:#25292a}
+.top{background:transparent;border-bottom-color:#ffffff09}.workspace{font-size:11px}.breadcrumb-slash{margin:0 12px;color:#616968}.btn{transition:background .16s,border-color .16s,box-shadow .16s;box-shadow:0 1px 0 #ffffff04 inset}.btn:hover:not(:disabled){box-shadow:0 4px 16px #0002}.btn.danger{background:transparent}.chip.paper{color:#d5f88a;background:#d5f88a0a;border-color:#d5f88a2a}.chip.on{background:transparent;border-color:var(--line2);color:#b5d6be}
+main{padding-top:38px}.pagehead{margin-bottom:32px}.pagehead h1{font-size:38px;letter-spacing:-1.6px;font-weight:500;margin-bottom:11px}.eyebrow{font-size:9px;letter-spacing:2.6px;color:var(--muted);margin-bottom:13px}.page-tools{gap:16px}#refresh{border-radius:30px;padding-inline:18px}#updated{font-size:10px}
+.panel{border-radius:20px;background:#1a1d1e;border-color:#ffffff0d;box-shadow:0 6px 20px #0000000c}.panel>h2{font-size:14px;letter-spacing:-.2px;padding:22px 24px;border-color:#ffffff0b}.panel>h2 .r{font-size:10px;color:var(--muted)}
+.hero{grid-template-columns:minmax(0,2.3fr) minmax(260px,1fr);gap:20px;align-items:stretch}
+.hero>.panel.performance{background:linear-gradient(135deg,#202425,#191c1d 65%);border-color:#ffffff10;display:block;position:relative;overflow:hidden}
+.performance .performance-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:23px 26px 0}.performance h2{font-size:13px;font-weight:500;margin:0;display:flex;gap:9px;align-items:center}.performance h2 .dot{width:5px;height:5px;background:var(--s1)}
+.periods{display:flex;gap:3px;padding:4px;border-radius:9px;border:1px solid #ffffff09;background:#10121388}.periods button{padding:4px 10px;min-height:32px;font-size:10px;color:var(--ink2);border-radius:6px;min-width:36px}.periods button[aria-pressed=true]{background:#3c4431;color:#d5f88a}.periods button:hover{background:#303636}
+.performance .big{padding:22px 26px 8px}.performance .big .lbl{color:var(--muted);font-size:11px}.performance .big .num{font-size:clamp(36px,4vw,58px);font-weight:500;letter-spacing:-2.8px;margin:6px 0 10px;line-height:1.15}.performance .big .sub{color:var(--muted);font-size:11px;gap:8px}.performance .big .sub>.delta:first-child{background:#d5f88a12;padding:4px 7px;border-radius:5px}
+.performance .chartwrap{padding:0 18px 16px}.performance .chart-dates{font-size:9px}.performance .performance-foot{display:flex;justify-content:space-between;gap:12px;padding:15px 26px;border-top:1px solid #ffffff0c;color:var(--muted);font-size:10px}.performance-foot b{font-weight:500;color:var(--ink2);margin-left:5px}
+.allocation{padding:24px;background:#d5f88a;border:1px solid #e3ffac;border-radius:20px;color:#25301a;display:flex;flex-direction:column;position:relative;overflow:hidden;min-width:0}.allocation:before{content:'';position:absolute;width:200px;height:200px;border:1px solid #40502218;border-radius:50%;top:-130px;right:-70px;box-shadow:0 0 0 24px #40502208,0 0 0 48px #40502206;pointer-events:none}.allocation h2{font-size:14px;font-weight:600;letter-spacing:-.3px;margin:0;display:flex;justify-content:space-between;align-items:center}.allocation h2 span{font-size:19px;font-weight:400}.allocation>p{font-size:11px;color:#55683c;margin:7px 0 0}.allocation-ring{margin:24px auto 20px;width:172px;aspect-ratio:1;border-radius:50%;background:conic-gradient(#27351e var(--allocated),#afce70 0);padding:12px;transform:rotate(-90deg);box-shadow:0 0 0 1px #283c1510}.allocation-ring>div{background:#d5f88a;width:100%;height:100%;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;transform:rotate(90deg);border:5px solid #d5f88a}.allocation-ring strong{font-size:35px;line-height:1.2;font-weight:500;letter-spacing:-1.5px}.allocation-ring small{font-size:10px;color:#506536;margin-top:4px}.allocation-legend{display:grid;gap:12px;margin:auto 0 20px}.allocation-legend>div{display:flex;gap:7px;align-items:center;font-size:11px}.allocation-legend b{margin-left:auto;font-size:13px;font-weight:600;letter-spacing:-.3px}.allocation-legend i{height:6px;width:6px;background:#27351e;border-radius:50%}.allocation-legend i.cash{background:#afce70;outline:1px solid #819a4b}.allocation .btn{width:100%;background:#27351e;color:#e3f7c4;border-color:#27351e;font-weight:500;font-size:11px;display:flex;justify-content:space-between;align-items:center;border-radius:10px}.allocation .btn:hover{background:#35482a;border-color:#35482a}
+.stats{gap:12px;grid-template-columns:repeat(3,minmax(0,1fr))}.stat{background:#1a1d1e;border:1px solid #ffffff0d;border-radius:16px;padding:20px;box-shadow:none;transition:border-color .18s,background .18s}.stat:hover{background:#202425;border-color:#d5f88a30}.stat:before{display:none}.stat .lbl{display:flex;align-items:center;gap:8px;font-size:11px;padding:0;color:var(--ink2)}.stat .lbl svg{width:16px;height:16px;stroke:#b4bfaa;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}.stat .num{font-size:27px;letter-spacing:-.9px;font-weight:500;margin-top:17px}.stat .sub{font-size:10px;color:var(--muted)}.stat .g{font-size:9px}.up{color:#d5f88a}
+.cols{grid-template-columns:minmax(0,1fr) minmax(0,1.45fr)}th{background:#171a1b;font-size:9px;color:#929c97;letter-spacing:1px}td{padding-block:19px;font-size:11px}tbody tr:hover{background:#222627}.tag.copy,.tag.active,.tag.open{background:#d5f88a12;color:#d5f88a;border:1px solid #d5f88a16}.tag{border-radius:20px;padding:6px 9px;letter-spacing:.6px;font-size:8px}.bar{height:5px;background:#ffffff09}.bar>i{background:#b6d989}.note{background:#16191a;border-color:#ffffff0b;color:var(--muted)}.cfg,.job{border-color:#ffffff0b;padding-block:24px}.savebar{background:#1a1d1e}.empty .ico{border-radius:50%;background:#d5f88a08;border-color:#d5f88a20;color:var(--s1)}.empty .ico svg{width:22px;height:22px;stroke:currentColor;stroke-width:1.3;fill:none}.empty .t{font-size:14px;letter-spacing:-.2px}.empty .d{font-size:12px}
+#lock{background:radial-gradient(ellipse at 25% 20%,#d5f88a10,transparent 50%),#101213}#lock form{background:linear-gradient(140deg,#252a28,#191d1c 70%);border-color:#ffffff14;box-shadow:0 35px 120px #0005}#lock .mark{border-radius:14px}#lock .eyebrow{color:#b5c0ac;font-size:9px}#lock h1{font-size:34px;letter-spacing:-1.3px}
+@media(min-width:1600px){.stats{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media(max-width:1200px){.hero{grid-template-columns:minmax(0,1.8fr) minmax(235px,1fr)}.allocation{padding:22px 20px}.performance .performance-head{padding-inline:20px}.performance .big{padding-inline:20px}.performance .performance-foot{padding-inline:20px}.cols{grid-template-columns:minmax(0,1fr)}.pagehead h1{font-size:34px}}
+@media(max-width:900px){.sidebar{background:#141617f5}nav button:not(.on):hover{transform:none}.nav-label{display:none}.hero{grid-template-columns:minmax(0,1.8fr) minmax(235px,1fr)}.pagehead h1{font-size:32px}.logo small{font-size:8px}}
+@media(max-width:650px){.hero{grid-template-columns:minmax(0,1fr)}.allocation{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;padding:22px}.allocation h2{grid-column:1/-1}.allocation>p{grid-column:1/-1;margin:0}.allocation-ring{grid-column:1;grid-row:3/5;width:140px;margin:12px auto 0;padding:10px}.allocation-ring strong{font-size:28px}.allocation-legend{grid-column:2;grid-row:3;gap:15px;margin:22px 0 5px}.allocation-legend>div{flex-wrap:wrap;gap:5px;font-size:10px}.allocation-legend b{flex-basis:100%;margin-left:11px;font-size:14px}.allocation .btn{grid-column:2;grid-row:4;font-size:10px;padding:9px;align-self:end;gap:5px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stat{padding:17px 16px}.stat .num{font-size:24px}.stat .lbl{font-size:10px;gap:6px}.stat .lbl svg{width:14px;height:14px}.pagehead h1{font-size:31px;letter-spacing:-1.2px}.pagehead{margin-bottom:26px}.eyebrow{font-size:8px;letter-spacing:2px}.performance .performance-head{padding:18px 18px 0;gap:8px}.performance h2{font-size:12px}.periods button{min-width:30px;padding-inline:7px;min-height:36px}.performance .big{padding:20px 18px 10px}.performance .big .num{font-size:46px;letter-spacing:-2px}.performance .big .sub{font-size:10px;gap:6px}.performance .chartwrap{padding-inline:10px}.performance .performance-foot{padding:13px 18px;font-size:9px;gap:10px;flex-wrap:wrap}.page-tools{padding-top:24px}#refresh{padding:10px}.panel>h2{padding:20px}.chart-dates{font-size:9px}.top{border-bottom:1px solid #ffffff09}.cols{gap:16px}}
+@media(prefers-reduced-motion:reduce){nav button,.stat,.btn{transition:none!important}}
+
+@media(min-width:1350px){.stats{grid-template-columns:repeat(6,minmax(0,1fr))}.stat{padding:18px 16px}.stat .num{font-size:23px}.stat .lbl{font-size:10px;gap:6px}}
 </style>
 </head>
 <body class="locked">
+<a class="skip" href="#main">Skip to content</a>
 
 <div id="lock">
   <form id="lockform">
-    <div class="mark">A</div>
-    <h1>Adaptive Smart-Money</h1>
-    <p>Enter your access password to continue.</p>
+    <div class="mark" aria-label="Smart-Money"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 24 12 8h6l-8 16zm10 0L22 8h6l-8 16z" fill="currentColor"/></svg></div>
+    <div class="eyebrow">Your trading workspace</div>
+    <h1>Welcome back.</h1>
+    <p>Sign in to your Smart-Money dashboard.</p>
+    <label for="pw">Access password</label>
     <input id="pw" type="password" autocomplete="current-password" placeholder="Password" autofocus>
-    <button type="submit" id="unlock">Unlock</button>
-    <div id="lockmsg"></div>
+    <button type="submit" id="unlock">Open dashboard &rarr;</button>
+    <div class="hint">Adaptive Smart-Money · Solana</div>
+    <div id="lockmsg" role="alert"></div>
   </form>
 </div>
 
 <div class="app">
+  <aside class="sidebar">
+    <div class="logo"><i aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M4 24 12 8h6l-8 16zm10 0L22 8h6l-8 16z" fill="currentColor"/></svg></i><span>Smart-Money<small>ADAPTIVE TRADING</small></span></div>
+    <div class="nav-label">WORKSPACE</div>
+    <nav id="tabs" aria-label="Main navigation">
+<button class=on aria-current=page data-tab="overview"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"/></svg><span>Overview</span></button>
+<button  data-tab="traders"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M17 4a4 4 0 0 1 0 8 M22 21v-2a4 4 0 0 0-3-4"/></svg><span>Traders</span></button>
+<button  data-tab="trades"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16 M15 2l5 5-5 5 M20 17H4 M9 12l-5 5 5 5"/></svg><span>Decisions</span></button>
+<button  data-tab="positions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v14H3z M8 7V3h8v4 M3 12h18 M10 12v3h4v-3"/></svg><span>Positions</span></button>
+<button  data-tab="harvest"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12 M7 10l5 5 5-5 M4 16v5h16v-5"/></svg><span>Harvesting</span></button>
+<button  data-tab="research"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10 M10 20V4 M16 20v-8 M22 20H2"/></svg><span>Research</span></button>
+<button  data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16 M4 17h16 M8 4v6 M16 14v6"/></svg><span>Settings</span></button>
+</nav><div class="sidebar-foot"><div class="network"><span class="dot"></span>Solana network</div><button class="btn" id="signout" title="End this session">Sign out ↗</button></div></aside>
   <div class="top">
-    <div class="logo"><i>A</i> <span>Smart-Money</span></div>
+    <span class="workspace">Workspace <span class="breadcrumb-slash">/</span> Solana</span>
     <span class="chip backtest" id="mode">—</span>
     <span class="chip off" id="state"><span class="dot"></span><span id="statetext">—</span></span>
     <div class="equity" id="topequity"></div>
@@ -298,21 +439,19 @@ textarea:focus{outline:none;border-color:var(--s1);box-shadow:0 0 0 3px rgba(57,
       <button class="btn sm" id="resume">Resume</button>
       <button class="btn sm" id="halt">Stop</button>
       <button class="btn sm danger" id="estop">Emergency stop</button>
-      <button class="btn sm" id="signout" title="End this session">Sign out</button>
+      <button class="btn sm mobile-signout" id="signoutmobile" title="End this session">Sign out</button>
     </div>
   </div>
 
-  <nav id="tabs">
-    <button class="on" data-tab="overview">Overview</button>
-    <button data-tab="traders">Traders</button>
-    <button data-tab="trades">Decisions</button>
-    <button data-tab="positions">Positions</button>
-    <button data-tab="harvest">Harvesting</button>
-    <button data-tab="research">Research</button>
-    <button data-tab="settings">Settings</button>
-  </nav>
 
-  <main>
+
+  <main id="main" tabindex="-1">
+    <header class="pagehead">
+      <div><div class="eyebrow">YOUR EDGE, IN FOCUS</div><h1 id="pagetitle">Overview</h1>
+      <p id="pagedesc">Your capital, positions, and trading activity at a glance.</p></div>
+      <div class="page-tools"><span id="updated" role="status">Waiting for data</span>
+      <button class="btn" id="refresh" aria-label="Refresh current view"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5 M4 17v-5h5 M6 6a8 8 0 0 1 13 3 M18 18A8 8 0 0 1 5 15"/></svg>Refresh</button></div>
+    </header>
     <div id="notstarted" style="display:none">
       <div class="panel" style="margin-bottom:14px;border-color:rgba(250,178,25,.35)">
         <div class="pad" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
@@ -325,11 +464,11 @@ textarea:focus{outline:none;border-color:var(--s1);box-shadow:0 0 0 3px rgba(57,
         </div>
       </div>
     </div>
-    <div id="error"></div><div id="view"></div>
+    <div id="error" role="alert"></div><div id="view" aria-labelledby="pagetitle"></div>
   </main>
 </div>
 
-<div id="toasts"></div>
+<div id="toasts" role="status" aria-live="polite"></div>
 
 <div id="modal" hidden>
   <div class="scrim" data-close></div>
@@ -398,8 +537,7 @@ const usdEx = v => (n(v)<0?'−$':'$')+Math.abs(n(v)).toLocaleString(undefined,
                     {minimumFractionDigits:2,maximumFractionDigits:2});
 const pct   = v => n(v).toFixed(2)+'%';
 const dirCls= v => n(v)>0?'up':n(v)<0?'down':'flat';
-/* Glyph + explicit sign, so profit and loss never depend on colour alone -
-   red vs green is ΔE 4.1 under deuteranopia. */
+/* Directional glyphs keep profit and loss understandable without colour. */
 const glyph = v => n(v)>0?'▲':n(v)<0?'▼':'–';
 const delta = (v,fmt)=>`<span class="delta ${dirCls(v)}"><span class="g">${glyph(v)}</span>${
   (fmt||usdEx)(Math.abs(n(v)))}</span>`;
@@ -432,16 +570,19 @@ function confirmDialog({title, body, ok = 'Confirm', danger = false, icon}){
     const okBtn = $('#mok');
     okBtn.textContent = ok;
     okBtn.className = 'btn pri' + (danger ? ' danger' : '');
+    const previousFocus=document.activeElement;
     el.hidden = false;
-    okBtn.focus();
+    $('#mcancel').focus();
 
     const done = value => {
       el.hidden = true;
       document.removeEventListener('keydown', onKey);
       _modalClose = null;
+      if(previousFocus?.isConnected) previousFocus.focus();
       resolve(value);
     };
     const onKey = e => {
+      if(e.key==='Tab'){ e.preventDefault(); (document.activeElement===okBtn ? $('#mcancel') : okBtn).focus(); }
       if(e.key === 'Escape') done(false);
       if(e.key === 'Enter' && document.activeElement === okBtn) done(true);
     };
@@ -466,16 +607,18 @@ function panel(title, body, right){
 }
 function table(cols, rows, empty){
   if(!rows.length) return empty;
-  return `<div class="scroll"><table><thead><tr>${
+  return `<div class="scroll" tabindex="0" role="region" aria-label="Scrollable data table"><table><thead><tr>${
     cols.map(c=>`<th${c.n?' class="n"':''}>${esc(c.t??c)}</th>`).join('')
   }</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
 }
 function empty(icon,title,detail){
-  return `<div class="empty"><div class="ico">${icon}</div>
+  return `<div class="empty"><div class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 17 9 12l4 3 7-9 M14 6h6v6 M4 4v16h16"/></svg></div>
     <div class="t">${esc(title)}</div><div class="d">${detail}</div></div>`;
 }
 function stat(lbl,num,sub,cls){
-  return `<div class="stat"><div class="lbl">${esc(lbl)}</div>
+  const paths={'Cash':'M3 6h17v14H3z M3 6V3h14v3 M16 12h4v4h-4z','Deployed':'M4 18 10 12l4 3 6-10 M14 5h6v6','Unrealized':'M3 12h4l3-7 4 14 3-7h4','Realized today':'M5 5h14v14H5z M8 12l3 3 5-6','Open positions':'M3 8h18v13H3z M8 8V3h8v5','Harvested':'M12 3v12 M7 10l5 5 5-5 M4 17v4h16v-4'};
+  const icon=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[lbl]||'M4 20V10 M10 20V4 M16 20v-8 M22 20H2'}"/></svg>`;
+  return `<div class="stat"><div class="lbl">${icon}${esc(lbl)}</div>
     <div class="num ${cls||''}">${num}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>`;
 }
 
@@ -490,11 +633,16 @@ function lineChart(el, series, opts){
       'The worker records a snapshot every five minutes. Come back shortly.');
     return;
   }
+  el.setAttribute('aria-label', `Portfolio equity: ${usdEx(pts[0].v)} on ${pts[0].t.toLocaleDateString()}, ${usdEx(pts[pts.length-1].v)} on ${pts[pts.length-1].t.toLocaleDateString()}.`);
   const wrap = el.closest('.chartwrap');
+  const dates=document.createElement('div'); dates.className='chart-dates';
+  dates.innerHTML=`<span>${pts[0].t.toLocaleDateString(undefined,{month:'short',day:'numeric'})}</span><span>${pts[pts.length-1].t.toLocaleDateString(undefined,{month:'short',day:'numeric'})}</span>`;
+  wrap.appendChild(dates);
   let tip = wrap.querySelector('.tip');
   if(!tip){ tip=document.createElement('div'); tip.className='tip'; wrap.appendChild(tip); }
 
-  const H = opts.height||200, PAD={l:8,r:8,t:14,b:20};
+  const H = opts.height||200, PAD={l:8,r:48,t:14,b:20};
+  const axisUSD=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',notation:'compact',maximumFractionDigits:1});
   let W=0, X=[], Y=[];
 
   function draw(hoverIdx){
@@ -516,14 +664,15 @@ function lineChart(el, series, opts){
     c.lineWidth=1;
     for(let i=0;i<=3;i++){
       const y=PAD.t+(i/3)*(H-PAD.t-PAD.b);
-      c.beginPath(); c.moveTo(PAD.l,y+.5); c.lineTo(W-PAD.r,y+.5); c.stroke();
+      c.setLineDash([3,5]); c.beginPath(); c.moveTo(PAD.l,y+.5); c.lineTo(W-PAD.r,y+.5); c.stroke(); c.setLineDash([]);
+      c.fillStyle=getComputedStyle(document.body).getPropertyValue('--muted').trim();c.font='9px system-ui';c.textAlign='right';c.fillText(axisUSD.format(hi-(i/3)*(hi-lo)),W-3,y+3);
     }
 
     const rising = vals[vals.length-1]>=vals[0];
-    const col = opts.color || (rising?'#0ca30c':'#d03b3b');
+    const col = opts.color || (rising?'#bcf58b':'#ffa1a6');
 
     const g=c.createLinearGradient(0,PAD.t,0,H-PAD.b);
-    g.addColorStop(0, rising?'rgba(12,163,12,.24)':'rgba(208,59,59,.24)');
+    g.addColorStop(0, rising?'rgba(188,245,139,.20)':'rgba(255,161,166,.20)');
     g.addColorStop(1,'rgba(0,0,0,0)');
     c.beginPath(); c.moveTo(X[0],H-PAD.b);
     X.forEach((x,i)=>c.lineTo(x,Y[i]));
@@ -531,6 +680,7 @@ function lineChart(el, series, opts){
 
     c.beginPath(); X.forEach((x,i)=>i?c.lineTo(x,Y[i]):c.moveTo(x,Y[i]));
     c.strokeStyle=col; c.lineWidth=2; c.lineJoin='round'; c.stroke();
+    c.beginPath();c.arc(X[X.length-1],Y[Y.length-1],3,0,Math.PI*2);c.fillStyle=col;c.fill();
 
     if(hoverIdx!=null){
       c.beginPath(); c.moveTo(X[hoverIdx]+.5,PAD.t); c.lineTo(X[hoverIdx]+.5,H-PAD.b);
@@ -543,7 +693,7 @@ function lineChart(el, series, opts){
     }
   }
 
-  el.onmousemove = e=>{
+  el.onpointermove = e=>{
     const rect=el.getBoundingClientRect(), x=e.clientX-rect.left;
     let idx=0, best=1e9;
     X.forEach((px,i)=>{ const d=Math.abs(px-x); if(d<best){best=d;idx=i;} });
@@ -555,7 +705,7 @@ function lineChart(el, series, opts){
     tip.style.left=Math.min(Math.max(X[idx]-tw/2,4), el.clientWidth-tw-4)+'px';
     tip.style.top=Math.max(Y[idx]-tip.offsetHeight-12,2)+'px';
   };
-  el.onmouseleave = ()=>{ tip.classList.remove('on'); draw(null); };
+  el.onpointercancel = el.onpointerleave = ()=>{ tip.classList.remove('on'); draw(null); };
   draw(null);
   return draw;
 }
@@ -564,8 +714,9 @@ function lineChart(el, series, opts){
 let tab='overview', cache={};
 
 async function viewOverview(){
+  const hours=cache.hours||168, period=hours===24?'24 hours':hours===720?'30 days':'7 days';
   const [p,perf,trades] = await Promise.all([
-    api('/portfolio'), api('/portfolio/performance?hours=168'), api('/trades?limit=10')
+    api('/portfolio'), api('/portfolio/performance?hours='+hours), api('/trades?limit=10')
   ]);
   const eq=n(p.equity_usd), hwm=n(p.high_water_mark_usd);
   const series=perf.series;
@@ -577,18 +728,22 @@ async function viewOverview(){
 
   $('#view').innerHTML = `
     <div class="hero">
-      ${panel('Portfolio equity',`
-        <div class="big">
-          <div class="lbl">Total equity</div>
-          <div class="num">${usdEx(eq)}</div>
-          <div class="sub">${deltaPct(changePct)} over 7 days · ${delta(change)}</div>
+      <section class="panel performance">
+        <div class="performance-head"><h2><span class="dot"></span>Portfolio performance</h2>
+          <div class="periods" role="group" aria-label="Chart time range">${[[24,'24H'],[168,'7D'],[720,'30D']].map(([value,label])=>`<button data-period="${value}" aria-pressed="${hours===value}">${label}</button>`).join('')}</div>
         </div>
-        <div class="note">
-          High-water mark <b>${usdEx(hwm)}</b> · drawdown ${pct(p.drawdown_pct)}
-          ${n(p.drawdown_pct)>10?' — approaching the limit':''}
-        </div>`)}
-      ${panel('Equity curve','<div class="chartwrap"><canvas id="curve"></canvas></div>',
-              '7 days')}
+        <div class="big"><div class="lbl">Total equity</div><div class="num">${usdEx(eq)}</div>
+          <div class="sub">${series.length ? `${deltaPct(changePct)} ${delta(change)} <span>over ${period}</span>` : '<span>Performance appears after the first snapshot.</span>'}</div>
+        </div>
+        <div class="chartwrap"><canvas id="curve" role="img" aria-label="Portfolio equity"></canvas></div>
+        <div class="performance-foot"><span>High-water mark <b>${usdEx(hwm)}</b></span><span>Drawdown <b>${pct(p.drawdown_pct)}</b></span></div>
+      </section>
+      <section class="allocation" aria-label="Capital allocation">
+        <h2>Capital allocation <span aria-hidden="true">↗</span></h2><p>A clear view of your exposure.</p>
+        <div class="allocation-ring" style="--allocated:${Math.max(0,Math.min(100,n(p.deployed_pct)))}%" role="img" aria-label="${pct(p.deployed_pct)} of equity deployed"><div><strong>${n(p.deployed_pct).toFixed(1)}%</strong><small>capital deployed</small></div></div>
+        <div class="allocation-legend"><div><i></i>Deployed<b>${usdEx(p.deployed_usd)}</b></div><div><i class="cash"></i>Available cash<b>${usdEx(p.cash_usd)}</b></div></div>
+        <button class="btn" data-go="positions">Explore positions <span aria-hidden="true">↗</span></button>
+      </section>
     </div>
 
     <div class="stats">
@@ -634,15 +789,17 @@ async function viewOverview(){
         'last 10')}
     </div>`;
 
+  $$('[data-period]').forEach(b=>{b.onclick=()=>{cache.hours=Number(b.dataset.period);render();};});
   const c=$('#curve');
   if(c){ const redraw=lineChart(c,series.map(x=>({t:x.t,v:x.equity})),{height:196});
-         if(redraw) cache.redraw=redraw; }
+         cache.redraw=redraw||null; }
 }
 
 async function viewTraders(){
   const showRemoved = !!cache.showRemoved;
   const d = await api('/setup/wallets?include_removed=' + showRemoved);
   const w = d.wallets;
+  const solUsd = n(d.sol_price_usd);
 
   const row = t => {
     const gone = t.status === 'blacklisted';
@@ -653,6 +810,11 @@ async function viewTraders(){
       <td class="n mono">${n(t.copyability).toFixed(1)}</td>
       <td class="n mono dim">${n(t.confidence).toFixed(0)}</td>
       <td class="n mono dim">${t.trade_count}</td>
+      <td class="n mono">${t.balance_sol != null
+        ? n(t.balance_sol).toLocaleString(undefined,{maximumFractionDigits:1})
+        : '<span class="faint">—</span>'}</td>
+      <td class="n mono dim">${t.balance_sol != null && solUsd
+        ? usd(n(t.balance_sol) * solUsd) : ''}</td>
       <td class="mono dim" style="font-size:11.5px">${esc(t.source || '—')}</td>
       <td class="n faint" title="${when(t.last_trade_at)}">${ago(t.last_trade_at)}</td>
       <td class="n">${gone
@@ -676,8 +838,8 @@ async function viewTraders(){
       </div>`)
     + panel('Watchlist',
         table([{t:'Wallet'},{t:'Status'},{t:'Score',n:true},{t:'Copyability',n:true},
-               {t:'Conf.',n:true},{t:'Trades',n:true},{t:'Source'},
-               {t:'Last seen',n:true},{t:'',n:true}],
+               {t:'Conf.',n:true},{t:'Trades',n:true},{t:'SOL',n:true},{t:'Value',n:true},
+               {t:'Source'},{t:'Last seen',n:true},{t:'',n:true}],
           w.map(row),
           empty('&#128100;', showRemoved ? 'Nothing removed' : 'No wallets yet',
                 'Paste addresses above, or press <b>Find wallets</b> to let GMGN suggest some.'))
@@ -686,6 +848,8 @@ async function viewTraders(){
              probation). The rest are watched so they can earn a score first —
              <b>copyability</b> is what fraction of a trader's edge survives your
              latency, and it matters more than raw profit.<br><br>
+             Balances are native SOL only - open token positions sit on top - and are
+             cached for ten minutes, since reading them costs a credit each.<br><br>
              Removing a wallet <b>blacklists</b> it rather than deleting it: the trade
              history stays part of the dataset, and it will not quietly reappear the
              next time discovery runs.
@@ -1069,9 +1233,24 @@ const VIEWS={overview:viewOverview,traders:viewTraders,
              trades:viewTrades,positions:viewPositions,harvest:viewHarvest,
              research:viewResearch,settings:viewSettings};
 
+let rendering=false, renderAgain=false;
 async function render(){
-  try{ $('#error').innerHTML=''; await VIEWS[tab](); }
-  catch(e){ $('#error').innerHTML=`<div class="err">${esc(e.message)} — is the API still running?</div>`; }
+  if(rendering){renderAgain=true; return;}
+  rendering=true;
+  $('#refresh').disabled=true;
+  $('#view').setAttribute('aria-busy','true');
+  try{
+    $('#error').innerHTML='';
+    await VIEWS[tab]();
+    $('#updated').textContent='Updated '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    $$('#view textarea').forEach(x=>{if(!x.labels.length)x.setAttribute('aria-label','Wallet addresses');});
+    $$('#view .cfg').forEach(row=>{const input=row.querySelector('input'), label=row.querySelector('.t');if(input&&label)input.setAttribute('aria-label',label.textContent);});
+  }
+  catch(e){ $('#error').innerHTML=`<div class="err">Could not load this view. ${esc(e.message)}. Try refreshing.</div>`; $('#updated').textContent='Update failed'; }
+  finally{
+    rendering=false; $('#refresh').disabled=false; $('#view').setAttribute('aria-busy','false');
+    if(renderAgain){renderAgain=false;render();}
+  }
 }
 
 async function heartbeat(){
@@ -1104,17 +1283,31 @@ async function heartbeat(){
 }
 
 /* ------------------------------------------------------------ wiring */
+function alignNavigation(){
+  const nav=$('#tabs'), active=nav.querySelector('.on');
+  if(active && window.innerWidth<=900){
+    nav.scrollLeft+=active.getBoundingClientRect().left-nav.getBoundingClientRect().left-(nav.clientWidth-active.offsetWidth)/2;
+  }else{nav.scrollLeft=0;}
+}
 $('#tabs').onclick=e=>{
   const b=e.target.closest('button'); if(!b) return;
-  $$('#tabs button').forEach(x=>x.classList.toggle('on',x===b));
-  tab=b.dataset.tab; render();
+  $$('#tabs button').forEach(x=>{x.classList.toggle('on',x===b); if(x===b) x.setAttribute('aria-current','page'); else x.removeAttribute('aria-current');});
+  tab=b.dataset.tab;
+  alignNavigation();
+  cache.redraw=null;
+  const descriptions={overview:'Your capital, positions, and trading activity at a glance.',traders:'Build your watchlist. Follow the wallets that earn their place.',trades:'See every copy decision and understand why signals pass or fail.',positions:'Track your open exposure, returns, and position exits.',harvest:'Follow the profits moved to your treasury and out of risk.',research:'Understand trader performance, execution latency, and data usage.',settings:'Fine-tune position sizing, risk limits, and scheduled jobs.'};
+  $('#pagetitle').textContent=b.textContent.trim();
+  $('#pagedesc').textContent=descriptions[tab];
+  $('#view').innerHTML='<div class="pad dim">Loading '+esc(b.textContent.trim().toLowerCase())+'…</div>';
+  $('#view').onclick=null;
+  render();
 };
 
 async function control(fn, label){
   try{
     const r=await fn();
     if(r && r.ok===false){ toast(r.error||'Request failed','bad'); }
-    else if(label){ toast(label); }
+    else if(r != null && label){ toast(label); }
   }catch(e){ toast(e.message,'bad'); }
   heartbeat();
 }
@@ -1154,10 +1347,13 @@ $('#estop').onclick =()=>control(async()=>{
 
 let resizeT;
 $('#signout').onclick = signOut;
+$('#signoutmobile').onclick = signOut;
+$('#refresh').onclick = () => render();
+document.addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(b)document.querySelector(`#tabs [data-tab="${b.dataset.go}"]`)?.click();});
 
 window.addEventListener('resize',()=>{
   clearTimeout(resizeT);
-  resizeT=setTimeout(()=>{ if(tab==='overview') render(); },180);
+  resizeT=setTimeout(()=>{ alignNavigation(); if(tab==='overview' && cache.redraw) cache.redraw(); },180);
 });
 
 $('#lockform').onsubmit = async e => {
@@ -1209,7 +1405,7 @@ async function boot(){
   if(ok){ unlockUI(); await boot(); } else { lock(''); }
   const live=()=>!document.body.classList.contains('locked');
   setInterval(()=>{ if(live()) heartbeat(); },5000);
-  setInterval(()=>{ if(live() && tab!=='settings') render(); },20000);
+  setInterval(()=>{ if(live() && tab!=='settings' && tab!=='traders' && $('#modal').hidden) render(); },20000);
 })();
 </script>
 </body>
