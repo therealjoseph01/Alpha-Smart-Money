@@ -99,11 +99,23 @@ there instead.
 
 ```bash
 ./stop.sh
-make db-push HOST=you@server DIR=/path/to/dokploy/compose/dir
+./scripts/db.sh push-docker root@your-server
 ```
 
-`db-push` snapshots consistently and backs up the remote copy first. Restart the
-containers afterwards so they reopen the file.
+`push-docker`, not `push`: on Dokploy the database lives in a Docker volume, not a
+directory, so copying to a path on the host writes somewhere nothing reads.
+
+It finds the api container, stops all four services, snapshots this database with
+`sqlite3 .backup` (consistent even while something is writing), copies the old remote
+one to `/tmp/asm.db.replaced`, writes the new one into the volume, deletes the stale
+`-wal` and `-shm` — they describe the previous database and SQLite would replay them
+over the new one — and starts the services again.
+
+The reverse, to bring the server's data down here:
+
+```bash
+./scripts/db.sh pull-docker root@your-server
+```
 
 **Run one instance.** Two bots on the same wallets both trade — double positions,
 double credits, and two risk ledgers that disagree. Once deployed, the server is the
