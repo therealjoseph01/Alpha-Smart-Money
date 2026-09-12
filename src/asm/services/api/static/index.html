@@ -212,6 +212,32 @@ textarea:focus{outline:none;border-color:var(--s1);box-shadow:0 0 0 3px rgba(57,
 .cfg input:focus{outline:none;border-color:var(--s1)}
 .cfg input.dirty{border-color:var(--s1);background:rgba(57,135,229,.08)}
 .cfg .unit{color:var(--muted);font:12px var(--mono);margin-left:6px}
+#modal{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:20px}
+#modal[hidden]{display:none}
+#modal .scrim{position:absolute;inset:0;background:rgba(5,7,11,.72);
+              backdrop-filter:blur(2px);animation:fade .12s ease-out}
+#modal .dialog{position:relative;width:100%;max-width:440px;background:var(--panel);
+               border:1px solid var(--line2);border-radius:var(--r);
+               box-shadow:0 20px 60px -20px rgba(0,0,0,.8);animation:pop .14s ease-out}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{transform:translateY(8px) scale(.985);opacity:0}
+               to{transform:none;opacity:1}}
+#modal .mhead{display:flex;gap:11px;align-items:center;padding:17px 19px 0}
+#modal h2{font:650 16px/1.3 var(--sans);margin:0;letter-spacing:-.01em;
+          text-transform:none;letter-spacing:0;color:var(--ink);padding:0;border:none}
+#modal .mico{width:30px;height:30px;border-radius:9px;flex:none;display:grid;
+             place-items:center;font-size:15px;background:var(--panel2)}
+#modal .mico.danger{background:rgba(208,59,59,.16);color:#ef8d8d}
+#modal .mico.warn{background:rgba(250,178,25,.14);color:#f5c563}
+#modal .mbody{padding:11px 19px 4px;font-size:13.5px;line-height:1.62;color:var(--ink2)}
+#modal .mbody b{color:var(--ink)}
+#modal .mbody ul{margin:9px 0 0;padding-left:18px}
+#modal .mbody li{margin:3px 0}
+#modal .mfoot{display:flex;gap:9px;justify-content:flex-end;padding:17px 19px 19px}
+#modal .btn.pri.danger{background:var(--critical);border-color:var(--critical);color:#fff}
+#modal .btn.pri.danger:hover:not(:disabled){background:#e04a4a}
+@media(max-width:480px){#modal .mfoot{flex-direction:column-reverse}
+                        #modal .mfoot .btn{width:100%}}
 .savebar{position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--line);
          padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 @media(max-width:640px){.cfg{grid-template-columns:1fr}}
@@ -297,6 +323,19 @@ textarea:focus{outline:none;border-color:var(--s1);box-shadow:0 0 0 3px rgba(57,
 
 <div id="toasts"></div>
 
+<div id="modal" hidden>
+  <div class="scrim" data-close></div>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mtitle">
+    <div class="mhead"><span class="mico" id="mico"></span>
+      <h2 id="mtitle"></h2></div>
+    <div class="mbody" id="mbody"></div>
+    <div class="mfoot">
+      <button class="btn" id="mcancel" data-close>Cancel</button>
+      <button class="btn pri" id="mok">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -368,6 +407,42 @@ const ago   = t => { if(!t) return '—';
   return Math.floor(s/86400)+'d ago'; };
 const when  = t => t? new Date(t).toLocaleString() : '';
 const ms    = v => v==null?'—':(v<1000? v+'ms' : (v/1000).toFixed(1)+'s');
+
+/* An in-page dialog rather than window.confirm(). Browser dialogs freeze the whole
+   page, cannot be styled or explained properly, and on an emergency-stop prompt the
+   wording is the part that matters most. Returns a promise that resolves true/false,
+   so call sites read exactly as confirm() did. */
+let _modalClose = null;
+
+function confirmDialog({title, body, ok = 'Confirm', danger = false, icon}){
+  return new Promise(resolve => {
+    const el = $('#modal');
+    $('#mtitle').textContent = title;
+    $('#mbody').innerHTML = body;
+    $('#mico').textContent = icon || (danger ? '\u26A0' : '?');
+    $('#mico').className = 'mico ' + (danger ? 'danger' : 'warn');
+    const okBtn = $('#mok');
+    okBtn.textContent = ok;
+    okBtn.className = 'btn pri' + (danger ? ' danger' : '');
+    el.hidden = false;
+    okBtn.focus();
+
+    const done = value => {
+      el.hidden = true;
+      document.removeEventListener('keydown', onKey);
+      _modalClose = null;
+      resolve(value);
+    };
+    const onKey = e => {
+      if(e.key === 'Escape') done(false);
+      if(e.key === 'Enter' && document.activeElement === okBtn) done(true);
+    };
+    _modalClose = done;
+    document.addEventListener('keydown', onKey);
+    okBtn.onclick = () => done(true);
+    el.onclick = e => { if(e.target.closest('[data-close]')) done(false); };
+  });
+}
 
 function toast(text, kind){
   const el=document.createElement('div');
@@ -660,9 +735,16 @@ async function viewTraders(){
     const rs = e.target.closest('[data-restore]');
     if(rm){
       const wallet = rm.dataset.remove;
-      if(!confirm('Stop watching ' + short(wallet, 6) + '?\n\n'
-        + 'It will no longer be monitored or copied. Its history is kept and you can '
-        + 'restore it later.')) return;
+      const yes = await confirmDialog({
+        title: 'Stop watching this wallet?',
+        body: `<b class="mono">${esc(short(wallet, 8))}</b> will no longer be monitored
+               or copied.<ul>
+               <li>Its trade history is kept as part of your dataset</li>
+               <li>It will not reappear the next time discovery runs</li>
+               <li>You can restore it from <b>show removed</b></li></ul>`,
+        ok: 'Remove wallet',
+      });
+      if(!yes) return;
       rm.disabled = true;
       const r = await post('/setup/wallets/' + encodeURIComponent(wallet) + '/remove', {});
       toast(r.ok ? 'Wallet removed' : (r.error || 'Failed'), r.ok ? '' : 'bad');
@@ -902,7 +984,13 @@ async function viewSettings(){
   };
 
   $('#cfgreset').onclick = async () => {
-    if(!confirm('Reset every setting to the defaults built into the code?')) return;
+    const yes = await confirmDialog({
+      title: 'Reset all settings?',
+      body: `Every value on this page returns to the default built into the code.
+             Your saved settings are deleted.`,
+      ok: 'Reset to defaults', danger: true,
+    });
+    if(!yes) return;
     const r = await post('/config/reset', {});
     toast(r.ok ? 'Reset to defaults' : 'Reset failed', r.ok ? '' : 'bad');
     render();
@@ -969,13 +1057,29 @@ $('#startbig').onclick=doStart;
 $('#pause').onclick =()=>control(()=>post('/system/pause',{hard:false}),'Paused');
 $('#resume').onclick=()=>control(()=>post('/system/resume'),'Resumed');
 $('#halt').onclick  =()=>control(async()=>{
-  if(!confirm('Stop trading?\n\nNo new positions will be opened. Open positions are '
-             +'still managed and will still exit normally.')) return null;
+  const yes = await confirmDialog({
+    title: 'Stop trading?',
+    body: `No new positions will be opened.<ul>
+           <li>Open positions are <b>still managed</b> and will still exit normally</li>
+           <li>Stops, take-profits and trailing stops keep working</li>
+           <li>You can start again at any time</li></ul>`,
+    ok: 'Stop trading',
+  });
+  if(!yes) return null;
   return post('/system/stop');
 },'Trading stopped');
 $('#estop').onclick =()=>control(async()=>{
-  if(!confirm('EMERGENCY STOP\n\nThis halts all signing immediately and queues a '
-             +'liquidation of every open position.\n\nContinue?')) return null;
+  const yes = await confirmDialog({
+    title: 'Emergency stop',
+    body: `This is the kill switch.<ul>
+           <li>All signing halts <b>immediately</b></li>
+           <li>Every open position is queued for <b>liquidation at market</b></li>
+           <li>Exits accept much worse pricing — being out is the priority</li>
+           <li>Clearing it afterwards is deliberate, not automatic</li></ul>
+           Use this when something is wrong, not to pause.`,
+    ok: 'Liquidate everything', danger: true, icon: '\u26A0',
+  });
+  if(!yes) return null;
   const r=await post('/system/emergency-stop',{exit_positions:true});
   render(); return r;
 },'Emergency stop engaged');
