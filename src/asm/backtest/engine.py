@@ -239,6 +239,21 @@ class BacktestResult:
 
     def verdict(self) -> str:
         """A blunt read, so nobody talks themselves into a bad number."""
+        # Say WHY there is no sample when the reason is a setup step rather than a
+        # property of the wallets. "Fewer than 20 closed trades" is true but useless
+        # when the real answer is that the roster is empty, and it reads like a
+        # verdict on the strategy when it is a verdict on nothing at all.
+        if not self.trades and self.signals:
+            top = max(self.rejection_reasons.items(), key=lambda kv: kv[1], default=None)
+            if top and top[0] == "TRADER_NOT_FOLLOWED" and top[1] == self.rejected:
+                return ("NOT_RUN: every signal was skipped because no wallet is in the "
+                        "copy roster yet. Score your wallets (Traders -> Score all), "
+                        "then run this again.")
+            if top and top[1] == self.rejected:
+                return (f"NOT_RUN: all {self.rejected} signals were rejected for the "
+                        f"same reason ({top[0]}); this measures that gate, not the "
+                        "strategy")
+
         if len(self.trades) < 20:
             return "INSUFFICIENT_SAMPLE: fewer than 20 closed trades; do not act on this"
         if self.realized_pnl_usd <= 0:

@@ -335,3 +335,39 @@ async def test_scale_free_retention_ignores_position_size(redis):
     small = await run(1_000_000)
     huge = await run(100_000_000)
     assert small == huge, "retention must be independent of the source's position size"
+
+
+class TestVerdictExplainsAnEmptyRun:
+    """A backtest that took no trades because the roster was empty is not a verdict
+    on the strategy, and saying 'fewer than 20 closed trades' reads like one."""
+
+    def _result(self, reasons: dict[str, int]):
+        from datetime import UTC, datetime
+
+        from asm.backtest.engine import BacktestConfig, BacktestResult
+
+        now = datetime.now(UTC)
+        r = BacktestResult(id="t", config=BacktestConfig(), started_at=now,
+                           finished_at=now)
+        r.signals = sum(reasons.values())
+        r.rejected = sum(reasons.values())
+        r.rejection_reasons = dict(reasons)
+        return r
+
+    def test_names_the_unscored_roster(self):
+        v = self._result({"TRADER_NOT_FOLLOWED": 154}).verdict()
+        assert v.startswith("NOT_RUN")
+        assert "Score all" in v
+
+    def test_names_any_other_single_dominant_gate(self):
+        v = self._result({"LIQUIDITY_TOO_LOW": 80}).verdict()
+        assert v.startswith("NOT_RUN")
+        assert "LIQUIDITY_TOO_LOW" in v
+
+    def test_a_mix_of_reasons_is_still_insufficient_sample(self):
+        """Several gates firing is a real result about the configuration."""
+        v = self._result({"LIQUIDITY_TOO_LOW": 40, "PRICE_CHASED": 40}).verdict()
+        assert v.startswith("INSUFFICIENT_SAMPLE")
+
+    def test_not_run_never_passes_the_promotion_gate(self):
+        assert not self._result({"TRADER_NOT_FOLLOWED": 9}).verdict().startswith("VIABLE")
