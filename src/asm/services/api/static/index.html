@@ -1143,7 +1143,15 @@ $('#lockform').onsubmit = async e => {
       unlockUI();
       await boot();
     }else{
-      $('#lockmsg').innerHTML = '<span>&#9888;</span><span>Incorrect password.</span>';
+      /* Show what the server actually said. It distinguishes a wrong password (with
+         attempts remaining) from a lockout, and reporting both as "incorrect" sends
+         you hunting for a password problem that is really a 15-minute wait. */
+      let detail = '';
+      try { detail = (await r.json()).detail || ''; } catch {}
+      if(!detail) detail = r.status === 429
+        ? 'Too many attempts. Try again in a few minutes.'
+        : 'Incorrect password.';
+      $('#lockmsg').innerHTML = '<span>&#9888;</span><span>' + esc(detail) + '</span>';
       $('#pw').value = ''; $('#pw').focus();
     }
   }catch(err){
