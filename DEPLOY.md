@@ -67,9 +67,13 @@ does not understand.
 
 ## 4. Reaching the dashboard
 
-Map a domain to the `api` service on port 8000 in Dokploy. It will terminate TLS and
-set `X-Forwarded-Proto`, which the session cookie reads — so the cookie is marked
-Secure automatically, with nothing to configure.
+Domains → **Add Domain**, service `api`, container port `8000`, HTTPS on.
+
+Dokploy terminates TLS and sets `X-Forwarded-Proto`, which the session cookie reads —
+so the cookie is marked Secure automatically, with nothing to configure.
+
+Only `api` is on `dokploy-network`. The other four services are unreachable from
+outside the stack by design, so there is nothing else a domain could be pointed at.
 
 The dashboard is password-protected and login is rate limited to eight attempts per IP
 per fifteen minutes. Still, prefer not exposing it publicly at all:
