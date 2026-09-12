@@ -66,8 +66,20 @@ STATIC = Path(__file__).parent / "static"
 
 @app.get("/", include_in_schema=False)
 async def dashboard():
-    """PRD 42 - the operator control center."""
-    return FileResponse(STATIC / "index.html")
+    """PRD 42 - the operator control center.
+
+    Explicitly uncached. The dashboard is a single file that changes whenever the app
+    is updated, and a browser holding yesterday's copy shows tabs that no longer exist
+    and calls endpoints that have moved - which looks like a broken deploy rather than
+    a stale cache.
+    """
+    return FileResponse(
+        STATIC / "index.html",
+        headers={
+            "Cache-Control": "no-store, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/api")
