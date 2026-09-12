@@ -18,22 +18,25 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from asm.db.base import Base, Timestamps, UUIDPk
+from asm.db.types import GUID, IntList, JSONDict, Money, RawAmount, StringList
 
-AMT = Numeric(78, 0)
-PRICE = Numeric(38, 18)
-USD = Numeric(38, 12)
-PCT = Numeric(12, 6)
-SCORE = Numeric(6, 2)
+# Portable aliases. Exact decimals on both SQLite and PostgreSQL - see db/types.py for
+# why Numeric alone is not safe for money on SQLite.
+AMT = RawAmount()          # token amounts, raw integer units
+PRICE = Money(38, 18)
+USD = Money(38, 12)
+PCT = Money(12, 6)
+SCORE = Money(6, 2)
+SOL = Money(38, 9)
+PGUUID = GUID
+JSONB = JSONDict
 
 
 def _ts(**kw) -> Mapped[datetime]:
@@ -68,7 +71,7 @@ class Trader(Base, UUIDPk, Timestamps):
     last_trade_at: Mapped[datetime | None] = _ts(index=True)
     promoted_at: Mapped[datetime | None] = _ts()
     degraded_at: Mapped[datetime | None] = _ts()
-    meta: Mapped[dict] = mapped_column(JSONB, default=dict)
+    meta: Mapped[dict] = mapped_column(JSONDict(), default=dict)
 
     __table_args__ = (
         UniqueConstraint("chain", "wallet_address", name="uq_traders_chain_wallet"),
@@ -80,7 +83,7 @@ class TraderScore(Base, UUIDPk):
     __tablename__ = "trader_scores"
 
     trader_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("traders.id", ondelete="CASCADE"), index=True
+        GUID(), ForeignKey("traders.id", ondelete="CASCADE"), index=True
     )
     performance: Mapped[Decimal] = mapped_column(SCORE, default=0)
     consistency: Mapped[Decimal] = mapped_column(SCORE, default=0)
@@ -92,7 +95,7 @@ class TraderScore(Base, UUIDPk):
     confidence: Mapped[Decimal] = mapped_column(SCORE, default=0)
     sample_size: Mapped[int] = mapped_column(Integer, default=0)
     strategy_version: Mapped[str] = mapped_column(String(32), default="v1")
-    inputs: Mapped[dict] = mapped_column(JSONB, default=dict)
+    inputs: Mapped[dict] = mapped_column(JSONDict(), default=dict)
     computed_at: Mapped[datetime] = _ts(index=True)
 
 
@@ -100,7 +103,7 @@ class TraderDailyMetric(Base, UUIDPk):
     __tablename__ = "trader_daily_metrics"
 
     trader_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("traders.id", ondelete="CASCADE"), index=True
+        GUID(), ForeignKey("traders.id", ondelete="CASCADE"), index=True
     )
     day: Mapped[datetime] = _ts(index=True)
     trades: Mapped[int] = mapped_column(Integer, default=0)
@@ -109,7 +112,7 @@ class TraderDailyMetric(Base, UUIDPk):
     copied_pnl_usd: Mapped[Decimal] = mapped_column(USD, default=0)
     copyable_pnl_usd: Mapped[Decimal] = mapped_column(USD, default=0)
     max_drawdown_pct: Mapped[Decimal] = mapped_column(PCT, default=0)
-    meta: Mapped[dict] = mapped_column(JSONB, default=dict)
+    meta: Mapped[dict] = mapped_column(JSONDict(), default=dict)
 
     __table_args__ = (UniqueConstraint("trader_id", "day", name="uq_trader_daily"),)
 
@@ -123,7 +126,7 @@ class TraderRelationship(Base, UUIDPk, Timestamps):
     wallet_b: Mapped[str] = mapped_column(String(64), index=True)
     relation: Mapped[str] = mapped_column(String(32))
     strength: Mapped[Decimal] = mapped_column(PCT, default=0)
-    evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
+    evidence: Mapped[dict] = mapped_column(JSONDict(), default=dict)
 
     __table_args__ = (UniqueConstraint("wallet_a", "wallet_b", "relation", name="uq_rel"),)
 
@@ -139,7 +142,7 @@ class Token(Base, UUIDPk, Timestamps):
     decimals: Mapped[int] = mapped_column(Integer, default=9)
     created_at_chain: Mapped[datetime | None] = _ts()
     deployer: Mapped[str | None] = mapped_column(String(64), index=True)
-    meta: Mapped[dict] = mapped_column(JSONB, default=dict)
+    meta: Mapped[dict] = mapped_column(JSONDict(), default=dict)
 
 
 class TokenSnapshot(Base, UUIDPk):
@@ -164,8 +167,8 @@ class TokenRiskScore(Base, UUIDPk):
     lp_burned: Mapped[bool | None] = mapped_column(Boolean)
     top10_holder_pct: Mapped[Decimal | None] = mapped_column(PCT)
     is_honeypot: Mapped[bool | None] = mapped_column(Boolean)
-    reasons: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
-    detail: Mapped[dict] = mapped_column(JSONB, default=dict)
+    reasons: Mapped[list[str]] = mapped_column(StringList(), default=list)
+    detail: Mapped[dict] = mapped_column(JSONDict(), default=dict)
     evaluated_at: Mapped[datetime] = _ts(index=True)
 
 
@@ -188,20 +191,20 @@ class SourceTradeRow(Base, UUIDPk):
     source_confirmed_at: Mapped[datetime] = _ts(index=True)
     detected_at: Mapped[datetime] = _ts()
     observation_latency_ms: Mapped[int | None] = mapped_column(Integer)
-    raw: Mapped[dict] = mapped_column(JSONB, default=dict)
+    raw: Mapped[dict] = mapped_column(JSONDict(), default=dict)
 
 
 class TradeCandidateRow(Base, UUIDPk):
     __tablename__ = "trade_candidates"
 
     source_trade_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("source_trades.id", ondelete="CASCADE"), index=True
+        GUID(), ForeignKey("source_trades.id", ondelete="CASCADE"), index=True
     )
     trader_wallet: Mapped[str] = mapped_column(String(64), index=True)
     token_mint: Mapped[str] = mapped_column(String(64), index=True)
-    market_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
-    quote_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
-    confirmations: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    market_snapshot: Mapped[dict] = mapped_column(JSONDict(), default=dict)
+    quote_snapshot: Mapped[dict] = mapped_column(JSONDict(), default=dict)
+    confirmations: Mapped[list[str]] = mapped_column(StringList(), default=list)
     created_at: Mapped[datetime] = _ts(index=True)
 
 
@@ -210,15 +213,15 @@ class TradeDecision(Base, UUIDPk):
 
     __tablename__ = "trade_decisions"
 
-    candidate_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), index=True)
-    source_trade_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), index=True)
+    candidate_id: Mapped[uuid.UUID] = mapped_column(GUID(), index=True)
+    source_trade_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True)
     trader_wallet: Mapped[str] = mapped_column(String(64), index=True)
     token_mint: Mapped[str] = mapped_column(String(64), index=True)
     action: Mapped[str] = mapped_column(String(16))
     decision: Mapped[str] = mapped_column(String(16), index=True)
-    reason_codes: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
-    gates: Mapped[dict] = mapped_column(JSONB, default=dict)
-    inputs: Mapped[dict] = mapped_column(JSONB, default=dict)
+    reason_codes: Mapped[list[str]] = mapped_column(StringList(), default=list)
+    gates: Mapped[dict] = mapped_column(JSONDict(), default=dict)
+    inputs: Mapped[dict] = mapped_column(JSONDict(), default=dict)
     size_usd: Mapped[Decimal] = mapped_column(USD, default=0)
     size_pct: Mapped[Decimal] = mapped_column(PCT, default=0)
     size_multiplier: Mapped[Decimal] = mapped_column(PCT, default=1)
@@ -239,8 +242,8 @@ class Order(Base, UUIDPk, Timestamps):
     __tablename__ = "orders"
 
     idempotency_key: Mapped[str] = mapped_column(String(80), unique=True, index=True)
-    decision_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), index=True)
-    position_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), index=True)
+    decision_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True)
+    position_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), index=True)
     mode: Mapped[str] = mapped_column(String(16), index=True)
     status: Mapped[str] = mapped_column(String(16), default="created", index=True)
     action: Mapped[str] = mapped_column(String(16))
@@ -259,7 +262,7 @@ class ExecutionRow(Base, UUIDPk, Timestamps):
     __tablename__ = "executions"
 
     order_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), index=True
+        GUID(), ForeignKey("orders.id", ondelete="CASCADE"), index=True
     )
     mode: Mapped[str] = mapped_column(String(16), index=True)
     status: Mapped[str] = mapped_column(String(16), index=True)
@@ -286,7 +289,7 @@ class ExecutionRow(Base, UUIDPk, Timestamps):
     signed_at: Mapped[datetime | None] = _ts()
     submitted_at: Mapped[datetime | None] = _ts()
     confirmed_at: Mapped[datetime | None] = _ts()
-    raw: Mapped[dict] = mapped_column(JSONB, default=dict)
+    raw: Mapped[dict] = mapped_column(JSONDict(), default=dict)
 
 
 class PositionRow(Base, UUIDPk, Timestamps):
@@ -310,9 +313,9 @@ class PositionRow(Base, UUIDPk, Timestamps):
     current_price: Mapped[Decimal] = mapped_column(PRICE, default=0)
     peak_price: Mapped[Decimal] = mapped_column(PRICE, default=0)
     trailing_armed: Mapped[bool] = mapped_column(Boolean, default=False)
-    tp_levels_hit: Mapped[list[int]] = mapped_column(ARRAY(Integer), default=list)
+    tp_levels_hit: Mapped[list[int]] = mapped_column(IntList(), default=list)
 
-    source_trade_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    source_trade_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
     opened_at: Mapped[datetime] = _ts(index=True)
     closed_at: Mapped[datetime | None] = _ts()
 
@@ -325,18 +328,18 @@ class PositionEvent(Base, UUIDPk):
     __tablename__ = "position_events"
 
     position_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("positions.id", ondelete="CASCADE"), index=True
+        GUID(), ForeignKey("positions.id", ondelete="CASCADE"), index=True
     )
     seq: Mapped[int] = mapped_column(Integer, default=0)
     event_type: Mapped[str] = mapped_column(String(16), index=True)
-    execution_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    execution_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
     amount_raw_delta: Mapped[Decimal] = mapped_column(AMT, default=0)
     usd_delta: Mapped[Decimal] = mapped_column(USD, default=0)
     price: Mapped[Decimal] = mapped_column(PRICE, default=0)
     realized_pnl_usd: Mapped[Decimal] = mapped_column(USD, default=0)
     fees_usd: Mapped[Decimal] = mapped_column(USD, default=0)
     exit_reason: Mapped[str | None] = mapped_column(String(32))
-    detail: Mapped[dict] = mapped_column(JSONB, default=dict)
+    detail: Mapped[dict] = mapped_column(JSONDict(), default=dict)
     occurred_at: Mapped[datetime] = _ts(index=True)
 
     __table_args__ = (UniqueConstraint("position_id", "seq", name="uq_position_event_seq"),)
@@ -357,7 +360,7 @@ class PortfolioSnapshot(Base, UUIDPk):
     drawdown_pct: Mapped[Decimal] = mapped_column(PCT, default=0)
     harvested_total_usd: Mapped[Decimal] = mapped_column(USD, default=0)
     open_positions: Mapped[int] = mapped_column(Integer, default=0)
-    sol_balance: Mapped[Decimal] = mapped_column(Numeric(38, 9), default=0)
+    sol_balance: Mapped[Decimal] = mapped_column(SOL, default=0)
     captured_at: Mapped[datetime] = _ts(index=True)
 
 
@@ -367,7 +370,7 @@ class RiskEvent(Base, UUIDPk):
     kind: Mapped[str] = mapped_column(String(48), index=True)
     severity: Mapped[str] = mapped_column(String(16), default="warning")
     message: Mapped[str] = mapped_column(Text)
-    detail: Mapped[dict] = mapped_column(JSONB, default=dict)
+    detail: Mapped[dict] = mapped_column(JSONDict(), default=dict)
     occurred_at: Mapped[datetime] = _ts(index=True)
 
 
@@ -380,13 +383,13 @@ class ProfitHarvestRule(Base, UUIDPk, Timestamps):
     take_pct: Mapped[Decimal] = mapped_column(PCT, default=40)
     min_active_capital_usd: Mapped[Decimal] = mapped_column(USD, default=500)
     destination: Mapped[str] = mapped_column(String(64), default="")
-    config: Mapped[dict] = mapped_column(JSONB, default=dict)
+    config: Mapped[dict] = mapped_column(JSONDict(), default=dict)
 
 
 class ProfitHarvestEvent(Base, UUIDPk):
     __tablename__ = "profit_harvest_events"
 
-    rule_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    rule_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
     mode: Mapped[str] = mapped_column(String(16), index=True)
     equity_before_usd: Mapped[Decimal] = mapped_column(USD, default=0)
     equity_after_usd: Mapped[Decimal] = mapped_column(USD, default=0)
@@ -396,14 +399,14 @@ class ProfitHarvestEvent(Base, UUIDPk):
     new_high_water_mark_usd: Mapped[Decimal] = mapped_column(USD, default=0)
     destination: Mapped[str] = mapped_column(String(64), default="")
     signature: Mapped[str | None] = mapped_column(String(128))
-    detail: Mapped[dict] = mapped_column(JSONB, default=dict)
+    detail: Mapped[dict] = mapped_column(JSONDict(), default=dict)
     occurred_at: Mapped[datetime] = _ts(index=True)
 
 
 class TreasuryTransfer(Base, UUIDPk):
     __tablename__ = "treasury_transfers"
 
-    harvest_event_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    harvest_event_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
     direction: Mapped[str] = mapped_column(String(16))
     amount_usd: Mapped[Decimal] = mapped_column(USD, default=0)
     amount_raw: Mapped[Decimal] = mapped_column(AMT, default=0)
@@ -421,7 +424,7 @@ class StrategyConfig(Base, UUIDPk, Timestamps):
     name: Mapped[str] = mapped_column(String(64), index=True)
     version: Mapped[str] = mapped_column(String(32))
     active: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    config: Mapped[dict] = mapped_column(JSONB, default=dict)
+    config: Mapped[dict] = mapped_column(JSONDict(), default=dict)
     checksum: Mapped[str] = mapped_column(String(64), default="")
 
     __table_args__ = (UniqueConstraint("name", "version", name="uq_strategy_version"),)
@@ -432,7 +435,7 @@ class SystemEvent(Base, UUIDPk):
 
     event_type: Mapped[str] = mapped_column(String(48), index=True)
     aggregate_id: Mapped[str | None] = mapped_column(String(64), index=True)
-    payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+    payload: Mapped[dict] = mapped_column(JSONDict(), default=dict)
     occurred_at: Mapped[datetime] = _ts(index=True)
 
 
@@ -443,7 +446,7 @@ class Alert(Base, UUIDPk):
     category: Mapped[str] = mapped_column(String(32), index=True)
     title: Mapped[str] = mapped_column(String(256))
     body: Mapped[str] = mapped_column(Text, default="")
-    detail: Mapped[dict] = mapped_column(JSONB, default=dict)
+    detail: Mapped[dict] = mapped_column(JSONDict(), default=dict)
     acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = _ts(index=True)
 
@@ -456,8 +459,8 @@ class AuditLog(Base, UUIDPk):
     actor: Mapped[str] = mapped_column(String(64), index=True)
     action: Mapped[str] = mapped_column(String(64), index=True)
     target: Mapped[str | None] = mapped_column(String(128))
-    before: Mapped[dict] = mapped_column(JSONB, default=dict)
-    after: Mapped[dict] = mapped_column(JSONB, default=dict)
+    before: Mapped[dict] = mapped_column(JSONDict(), default=dict)
+    after: Mapped[dict] = mapped_column(JSONDict(), default=dict)
     ip: Mapped[str | None] = mapped_column(String(64))
     occurred_at: Mapped[datetime] = _ts(index=True)
 
@@ -467,8 +470,8 @@ class Backtest(Base, UUIDPk, Timestamps):
 
     name: Mapped[str] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
-    params: Mapped[dict] = mapped_column(JSONB, default=dict)
-    results: Mapped[dict] = mapped_column(JSONB, default=dict)
+    params: Mapped[dict] = mapped_column(JSONDict(), default=dict)
+    results: Mapped[dict] = mapped_column(JSONDict(), default=dict)
     started_at: Mapped[datetime | None] = _ts()
     finished_at: Mapped[datetime | None] = _ts()
     error: Mapped[str | None] = mapped_column(Text)
