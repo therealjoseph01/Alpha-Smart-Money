@@ -392,6 +392,17 @@ MANUAL_JOBS: dict[str, dict[str, Any]] = {
         "cost": "free",
         "schedule": "05:30",
     },
+    # The only job here that nothing schedules. It is a promotion gate, so without a
+    # button the stage can never leave paper - which is what happened when the setup
+    # steps this used to live on were removed.
+    "run_backtest": {
+        "label": "Backtest",
+        "detail": "Replay your watchlist's own trade history and measure how much of "
+                  "their return a copier could actually have captured. Required "
+                  "before paper can advance to shadow.",
+        "cost": "~10 pages of history per wallet",
+        "schedule": "never - run it once, by hand",
+    },
 }
 
 
@@ -407,6 +418,25 @@ async def run_job(job: str, _: Auth):
     meta = MANUAL_JOBS.get(job)
     if meta is None:
         raise HTTPException(404, f"unknown job: {job}")
+
+    # A backtest needs a row to write its results into, and the worker takes that
+    # row's id rather than running against whatever it finds.
+    if job == "run_backtest":
+        from datetime import UTC, datetime
+
+        from asm.db.session import session_scope
+
+        async with session_scope() as s:
+            row = M.Backtest(name=f"ui-{datetime.now(UTC):%Y%m%d-%H%M%S}",
+                             status="queued", params={})
+            s.add(row)
+            await s.flush()
+            backtest_id = str(row.id)
+        await _enqueue(job, backtest_id)
+        return {"ok": True, "job": job, "label": meta["label"], "id": backtest_id,
+                "note": "Queued. Takes a few minutes; the Stage panel updates when "
+                        "it finishes."}
+
     await _enqueue(job)
     return {"ok": True, "job": job, "label": meta["label"],
             "note": f"Queued. {meta['cost']}. Runs on the worker."}
