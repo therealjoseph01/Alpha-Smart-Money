@@ -94,6 +94,10 @@ async def discover_wallets(ctx: dict, limit: int | None = None,
             min_realized_usd=settings.gmgn_min_realized_usd,
             min_trades=settings.gmgn_min_trades,
             min_winrate=settings.gmgn_min_winrate_pct,
+            max_trades_per_day=settings.gmgn_max_trades_per_day,
+            period_days=30,
+            tags=(meta.get(wallet) or {}).get("tags"),
+            excluded_tags=settings.gmgn_excluded_tags,
         )
         (passed if ok else rejected).append(
             {"wallet": wallet, "reason": reason, "profits": row})

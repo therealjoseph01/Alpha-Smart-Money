@@ -186,3 +186,52 @@ async def test_discovery_rejects_launchpad_tokens(redis, monkeypatch):
 
     result = await D.discover_wallets({}, auto_add=True)
     assert result["rejected_not_wallet"] >= 1
+
+
+# ------------------------------------------ frequency ceiling (the real filter)
+def test_hyperactive_wallets_are_rejected():
+    """Measured, not theoretical: 27 wallets averaging ~230 trades/day cost 350,000
+    Helius credits a day - ten times a 1M monthly plan - and could not have been
+    copied anyway, because an edge that lives ~100 seconds is gone before a follower
+    sees the trade."""
+    ok, reason = screen(
+        profits(buy=12_000, sell=12_000),        # 800 trades/day over 30 days
+        max_trades_per_day=100, period_days=30, **FLOORS,
+    )
+    assert not ok
+    assert "too fast to copy" in reason
+
+
+def test_a_swing_trader_passes():
+    """20 trades/day, ~70 minutes between trades - an edge that survives 3 seconds."""
+    ok, _ = screen(profits(buy=300, sell=300),
+                   max_trades_per_day=100, period_days=30, **FLOORS)
+    assert ok
+
+
+def test_frequency_is_judged_before_profitability():
+    """A hyperactive wallet with enormous P&L must still be rejected.
+
+    This is the product's thesis as a unit test: profitable and copyable are
+    different properties, and speed is the one that cannot be transferred.
+    """
+    ok, reason = screen(
+        profits(buy=15_000, sell=15_000, realized_profit="5000000"),
+        max_trades_per_day=100, period_days=30, **FLOORS,
+    )
+    assert not ok
+    assert "too fast" in reason
+
+
+def test_excluded_tags_reject_outright():
+    ok, reason = screen(profits(), tags=["kol", "wash_trader"],
+                        excluded_tags=("wash_trader",),
+                        max_trades_per_day=100, **FLOORS)
+    assert not ok
+    assert "wash_trader" in reason
+
+
+def test_the_ceiling_is_optional():
+    """Omitting it must not silently reject everything."""
+    ok, _ = screen(profits(buy=12_000, sell=12_000), **FLOORS)
+    assert ok

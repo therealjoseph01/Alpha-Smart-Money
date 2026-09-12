@@ -167,6 +167,22 @@ class Settings(BaseSettings):
     gmgn_min_realized_usd: Decimal = Decimal("1000")
     gmgn_min_trades: int = 20
     gmgn_min_winrate_pct: Decimal = Decimal("40")
+
+    # Trade-frequency ceiling. The single most important screen, for two reasons that
+    # happen to point the same way:
+    #
+    #   copyability - a wallet trading 800 times a day holds for ~100 seconds. Its edge
+    #     is speed, and speed is the one thing a follower cannot copy. By the time the
+    #     trade is visible the edge has been taken.
+    #   cost - watching is metered by volume. 27 such wallets measured at 350,000
+    #     credits a day: ten times a 1M monthly plan, spent watching traders that
+    #     cannot profitably be followed.
+    #
+    # A human swing trader makes 5-50 trades a day and holds for hours. That edge
+    # survives a 3-second delay almost entirely.
+    gmgn_max_trades_per_day: int = 100
+    # Tags GMGN applies that disqualify a wallet outright.
+    gmgn_excluded_tags: tuple[str, ...] = ("wash_trader",)
     seed_file: str = "seeds/wallets.txt"
 
     # Execution

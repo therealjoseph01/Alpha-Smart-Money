@@ -241,14 +241,26 @@ class GmgnClient(HttpAdapter):
 
 
 def screen(profits: dict[str, Any], *, min_realized_usd: Decimal,
-           min_trades: int, min_winrate: Decimal) -> tuple[bool, str]:
-    """Cheap first filter. Deliberately permissive.
+           min_trades: int, min_winrate: Decimal,
+           max_trades_per_day: int | None = None,
+           period_days: int = 30,
+           tags: list[str] | None = None,
+           excluded_tags: tuple[str, ...] = ()) -> tuple[bool, str]:
+    """Cheap first filter. Deliberately permissive about quality, strict about speed.
 
-    This decides only whether a wallet is worth spending ~300 Helius credits to analyse
-    properly. It must not try to decide whether the wallet is good - a high GMGN P&L is
-    exactly the "profitable but uncopyable" trap the product exists to catch. Screening
-    out the obviously dead and obviously tiny is all it is for.
+    It decides only whether a wallet is worth ~300 Helius credits to analyse properly.
+    It must not try to judge whether the wallet is GOOD - a high P&L is exactly the
+    "profitable but uncopyable" trap the product exists to catch.
+
+    The one thing it does judge is trading FREQUENCY, because that is not a quality
+    signal, it is a physics one: a wallet trading 800 times a day holds for roughly a
+    hundred seconds, and an edge that short is gone before a follower can see it. That
+    wallet may be extremely profitable and is still worth nothing to copy.
     """
+    for tag in (tags or []):
+        if tag in excluded_tags:
+            return False, f"tagged '{tag}' by GMGN"
+
     realized = _dec(profits.get("realized_profit"))
     total = _dec(profits.get("total_profit"), str(realized))
     buys = int(profits.get("buy", 0) or 0)
@@ -257,6 +269,14 @@ def screen(profits: dict[str, Any], *, min_realized_usd: Decimal,
 
     if trades < min_trades:
         return False, f"only {trades} trades in period"
+
+    if max_trades_per_day:
+        per_day = trades / max(1, period_days)
+        if per_day > max_trades_per_day:
+            hold_s = int(86_400 / per_day) if per_day else 0
+            return False, (f"{per_day:,.0f} trades/day (~{hold_s}s between trades) - "
+                           f"too fast to copy at our latency")
+
     if total <= 0 and realized <= 0:
         return False, "no profit in period"
     if realized < min_realized_usd:
@@ -268,7 +288,7 @@ def screen(profits: dict[str, Any], *, min_realized_usd: Decimal,
     if winrate and winrate < min_winrate:
         return False, f"winrate {winrate}% below {min_winrate}%"
 
-    return True, "passed screen"
+    return True, f"passed screen ({trades / max(1, period_days):,.0f} trades/day)"
 
 
 def to_profile(wallet: str, profits: dict[str, Any], meta: dict | None = None) -> TraderProfile:
