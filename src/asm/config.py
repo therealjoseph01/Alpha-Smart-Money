@@ -173,6 +173,10 @@ class Settings(BaseSettings):
     trading_wallet_pubkey: str = ""
     treasury_wallet_pubkey: str = ""
     signer_socket: str = "/tmp/asm-signer.sock"
+    # The signer daemon's own ceiling on what any single transaction may move. It is
+    # enforced inside the signer, so a bug in the trading code cannot raise it.
+    # 2 SOL default - raise deliberately, never to make a trade go through.
+    signer_max_lamports: int = 2_000_000_000
     priority_fee_lamports: int = 100_000
     max_priority_fee_lamports: int = 2_000_000
 

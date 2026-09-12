@@ -59,6 +59,10 @@ worker: ## run the ARQ cold-path worker
 decision: ## run the hot path (detection -> decision -> execution)
 	uv run python -m asm.services.decision_service
 
+signer: ## run the signer daemon (LIVE MODE ONLY — holds the private key)
+	@test -n "$$SOLANA_KEYPAIR" || { echo "SOLANA_KEYPAIR is not set — the signer has nothing to sign with"; exit 1; }
+	uv run python -m asm.execution.signer_service
+
 positions: ## run the exit/position manager
 	uv run python -m asm.services.position_service
 
