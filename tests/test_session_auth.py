@@ -147,8 +147,10 @@ async def test_a_successful_login_clears_the_counter(client, token):
     from asm.services.api import session
 
     class _Req:
-        headers: dict = {}
         client = None
+
+        def __init__(self):
+            self.headers: dict = {}
 
     assert await session.attempts_remaining(_Req()) == session.MAX_ATTEMPTS
 
