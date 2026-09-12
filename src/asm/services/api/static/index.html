@@ -444,6 +444,7 @@ main{padding-top:38px}.pagehead{margin-bottom:32px}.pagehead h1{font-size:38px;l
   <div class="top">
     <span class="workspace">Workspace <span class="breadcrumb-slash">/</span> Solana</span>
     <span class="chip backtest" id="mode">—</span>
+    <button class="btn sm" id="stagebtn" hidden></button>
     <span class="chip off" id="state"><span class="dot"></span><span id="statetext">—</span></span>
     <div class="equity" id="topequity"></div>
     <div class="spacer"></div>
@@ -1230,32 +1231,10 @@ async function viewSettings(){
       m.open_positions ? `${m.open_positions} open` : ''));
 
     const adv = $('#advance');
-    if (adv) adv.onclick = async () => {
-      adv.disabled = true;
-      const r = await post('/mode/advance', {});
-      toast(r.changed ? `Now in ${r.current}` : (r.detail || r.reason || 'Not ready'),
-            r.changed ? '' : 'bad');
-      render();
-    };
+    if (adv) adv.onclick = () => stageAdvance(adv);
 
     const live = $('#golive');
-    if (live) live.onclick = async () => {
-      const go = await confirmDialog({
-        title: 'Switch to live trading?',
-        body: `Real money will be at risk from the next signal.<ul>
-               <li>Every gate above has passed &mdash; that is necessary, not sufficient</li>
-               <li>Fund the trading wallet with only what you accept losing</li>
-               <li>The signer daemon must be running, or nothing can be signed</li>
-               <li>You can step back to shadow at any time</li></ul>`,
-        ok: 'Go live', danger: true,
-      });
-      if (!go) return;
-      live.disabled = true;
-      const r = await post('/mode/live', {confirm: 'trade real money'});
-      toast(r.changed ? 'LIVE - real money at risk' : (r.detail || 'Refused'),
-            r.changed ? '' : 'bad');
-      render();
-    };
+    if (live) live.onclick = () => stageGoLive(live);
 
     const back = $('#stepback');
     if (back) back.onclick = async () => {
@@ -1263,7 +1242,7 @@ async function viewSettings(){
       const r = await post('/mode/set', {mode: to});
       toast(r.changed ? `Stepped back to ${to}` : (r.detail || 'Failed'),
             r.changed ? '' : 'bad');
-      render();
+      await refreshStage(); render();
     };
   } catch {}
 
@@ -1329,6 +1308,61 @@ async function render(){
     rendering=false; $('#refresh').disabled=false; $('#view').setAttribute('aria-busy','false');
     if(renderAgain){renderAgain=false;render();}
   }
+}
+
+/* ------------------------------------------------------------ stage progression
+   The mode is changed in exactly two places - this button and the Stage panel in
+   Settings - so both call the same two functions. A second copy of the go-live
+   confirmation is a second chance to get the confirmation wrong. */
+let stage = null;
+
+async function stageAdvance(btn){
+  if(btn) btn.disabled = true;
+  const r = await post('/mode/advance', {});
+  toast(r.changed ? `Now in ${r.current}` : (r.detail || r.reason || 'Not ready'),
+        r.changed ? '' : 'bad');
+  await refreshStage(); render();
+}
+
+async function stageGoLive(btn){
+  const go = await confirmDialog({
+    title: 'Switch to live trading?',
+    body: `Real money will be at risk from the next signal.<ul>
+           <li>Every gate has passed &mdash; that is necessary, not sufficient</li>
+           <li>Fund the trading wallet with only what you accept losing</li>
+           <li>The signer daemon must be running, or nothing can be signed</li>
+           <li>You can step back to shadow at any time</li></ul>`,
+    ok: 'Go live', danger: true,
+  });
+  if(!go) return;
+  if(btn) btn.disabled = true;
+  const r = await post('/mode/live', {confirm: 'trade real money'});
+  toast(r.changed ? 'LIVE - real money at risk' : (r.detail || 'Refused'),
+        r.changed ? '' : 'bad');
+  await refreshStage(); render();
+}
+
+/* The button is disabled rather than hidden when the gates have not passed, and it
+   says which gate it is waiting on. A control that vanishes teaches nothing. */
+async function refreshStage(){
+  const b = $('#stagebtn');
+  if(!b) return;
+  try{
+    stage = await api('/mode');
+    if(!stage.target){ b.hidden = true; return; }
+    const live = stage.target === 'live';
+    const failing = (stage.gates || []).filter(g => !g.passed);
+    b.hidden = false;
+    b.textContent = live ? 'Go live' : `Advance to ${stage.target}`;
+    b.className = 'btn sm' + (live ? ' danger' : '') + (stage.ready ? ' pri' : '');
+    b.disabled = !stage.ready;
+    b.title = stage.ready
+      ? (live ? 'Every gate has passed. Real money from the next signal.'
+              : `Ready to advance to ${stage.target}.`)
+      : failing.length
+        ? `Waiting on: ${failing.map(g => g.detail).join(' \u00b7 ')}`
+        : (stage.note || '');
+  }catch{ b.hidden = true; }
 }
 
 async function heartbeat(){
@@ -1473,8 +1507,13 @@ async function signOut(){
   lock('Signed out.');
 }
 
+$('#stagebtn').onclick = () => stage && stage.target === 'live'
+  ? stageGoLive($('#stagebtn'))
+  : stageAdvance($('#stagebtn'));
+
 async function boot(){
   heartbeat();
+  refreshStage();
   render();
 }
 
@@ -1483,6 +1522,7 @@ async function boot(){
   if(ok){ unlockUI(); await boot(); } else { lock(''); }
   const live=()=>!document.body.classList.contains('locked');
   setInterval(()=>{ if(live()) heartbeat(); },5000);
+  setInterval(()=>{ if(live()) refreshStage(); },30000);
   setInterval(()=>{ if(live() && tab!=='settings' && tab!=='traders' && $('#modal').hidden) render(); },20000);
 })();
 </script>
