@@ -30,6 +30,45 @@ log = get_logger(__name__)
 COOKIE_NAME = "asm_session"
 PREFIX = "asm:session:"
 
+# Login rate limiting. The password is whatever the operator chose, and people choose
+# short ones - an 8-digit number is a few minutes of unthrottled guessing. Throttling
+# by source address turns that into years without inconveniencing anyone who knows it.
+ATTEMPT_PREFIX = "asm:login:"
+MAX_ATTEMPTS = 8
+LOCKOUT_SECONDS = 900
+ATTEMPT_WINDOW = 900
+
+
+def _client_ip(request) -> str:
+    """Behind a proxy the socket address is the proxy, so prefer the forwarded one."""
+    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if fwd:
+        return fwd
+    return request.client.host if request.client else "unknown"
+
+
+async def attempts_remaining(request) -> int:
+    r = get_redis()
+    used = int(await r.get(f"{ATTEMPT_PREFIX}{_client_ip(request)}") or 0)
+    return max(0, MAX_ATTEMPTS - used)
+
+
+async def record_failure(request) -> int:
+    """Count a bad password. Returns attempts left before lockout."""
+    r = get_redis()
+    key = f"{ATTEMPT_PREFIX}{_client_ip(request)}"
+    used = await r.incr(key)
+    if used == 1:
+        await r.expire(key, ATTEMPT_WINDOW)
+    if used >= MAX_ATTEMPTS:
+        await r.expire(key, LOCKOUT_SECONDS)
+        log.warning("login_locked_out", ip=_client_ip(request), attempts=used)
+    return max(0, MAX_ATTEMPTS - used)
+
+
+async def clear_failures(request) -> None:
+    await get_redis().delete(f"{ATTEMPT_PREFIX}{_client_ip(request)}")
+
 
 def _key(sid: str) -> str:
     return f"{PREFIX}{sid}"

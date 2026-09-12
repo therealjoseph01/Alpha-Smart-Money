@@ -118,3 +118,41 @@ async def test_cookie_is_secure_behind_a_tls_proxy(redis, token):
         r = await c.post("/auth/login", json={"password": token},
                          headers={"x-forwarded-proto": "https"})
         assert "Secure" in r.headers.get("set-cookie", "")
+
+
+# ------------------------------------------------------- login rate limiting
+async def test_brute_force_is_locked_out(client, token):
+    """An 8-digit password is minutes of unthrottled guessing. It must be throttled."""
+    from asm.services.api.session import MAX_ATTEMPTS
+
+    for _ in range(MAX_ATTEMPTS):
+        r = await client.post("/auth/login", json={"password": "wrong"})
+        assert r.status_code == 401
+
+    r = await client.post("/auth/login", json={"password": "wrong"})
+    assert r.status_code == 429
+
+    # Even the right password waits out the lockout - otherwise an attacker who
+    # eventually guesses it would walk straight in.
+    r = await client.post("/auth/login", json={"password": token})
+    assert r.status_code == 429
+
+
+async def test_a_successful_login_clears_the_counter(client, token):
+    for _ in range(3):
+        await client.post("/auth/login", json={"password": "wrong"})
+
+    assert (await client.post("/auth/login", json={"password": token})).status_code == 200
+
+    from asm.services.api import session
+
+    class _Req:
+        headers: dict = {}
+        client = None
+
+    assert await session.attempts_remaining(_Req()) == session.MAX_ATTEMPTS
+
+
+async def test_remaining_attempts_are_reported(client):
+    r = await client.post("/auth/login", json={"password": "wrong"})
+    assert "attempt" in r.json()["detail"]

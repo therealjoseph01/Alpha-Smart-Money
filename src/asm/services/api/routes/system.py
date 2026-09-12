@@ -206,12 +206,22 @@ async def login(request: Request, response: Response,
     from asm.services.api import session
     from asm.services.api.deps import token_is_valid
 
+    if await session.attempts_remaining(request) <= 0:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "too many failed attempts; try again in 15 minutes")
+
     if not token_is_valid(password.strip()):
         # Same shape of failure whichever way it is wrong, and slow enough not to be
         # a comfortable thing to guess against.
         await asyncio.sleep(0.4)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "incorrect password")
+        left = await session.record_failure(request)
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            f"incorrect password ({left} attempt{'' if left == 1 else 's'} left)"
+            if left else "too many failed attempts; locked for 15 minutes")
 
+    await session.clear_failures(request)
     await session.create(request, response)
     return {"ok": True, "expires_in": settings.session_ttl_seconds}
 
