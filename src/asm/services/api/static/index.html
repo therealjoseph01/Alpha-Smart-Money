@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASM · Control Center</title>
+<style>
+/* Palette: validated categorical slots + status ramp on surface #12151c.
+   Profit/loss is NEVER colour-alone - red vs green measures deutan ΔE 4.1, so every
+   signed value also carries a ▲/▼ glyph and an explicit sign. */
+:root{
+  --bg:#0d1016; --surface:#12151c; --panel:#171b24; --panel2:#1e232e; --raised:#242b38;
+  --line:#262c38; --line2:#333b4a; --grid:#1f2531;
+  --ink:#e9edf5; --ink2:#9ba6b9; --muted:#6d788a;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --seq1:#184f95; --seq2:#2a78d6; --seq3:#5598e7; --seq4:#86b6ef;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+  --r:10px; --r-sm:7px;
+  --shadow:0 1px 3px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--sans);
+     -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+body.locked > .app{display:none}
+button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
+:focus-visible{outline:2px solid var(--s1);outline-offset:2px;border-radius:4px}
+
+/* ---------------------------------------------------------------- lock */
+#lock{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:24px;
+      background:radial-gradient(120% 90% at 50% 0%, #161b26 0%, var(--bg) 62%)}
+#lock form{width:100%;max-width:330px;display:flex;flex-direction:column;gap:12px}
+#lock .mark{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
+            background:linear-gradient(145deg,var(--s1),#1c5cab);font:700 17px/1 var(--sans);
+            color:#fff;margin-bottom:6px;box-shadow:var(--shadow)}
+#lock h1{font:650 19px/1.3 var(--sans);margin:0;letter-spacing:-.01em}
+#lock p{margin:0 0 8px;font-size:13px;color:var(--ink2)}
+#lock input{background:var(--panel);border:1px solid var(--line2);color:var(--ink);
+            border-radius:var(--r-sm);padding:12px 14px;font:14px/1 var(--mono);width:100%}
+#lock input:focus{outline:none;border-color:var(--s1);box-shadow:0 0 0 3px rgba(57,135,229,.16)}
+#lock button{background:var(--s1);color:#fff;padding:12px;border-radius:var(--r-sm);
+             font-weight:600;transition:background .12s}
+#lock button:hover:not(:disabled){background:#4b93ea}
+#lock button:disabled{opacity:.5;cursor:progress}
+#lockmsg{font-size:13px;color:var(--critical);min-height:19px;display:flex;gap:6px;align-items:center}
+#lock .hint{font-size:12px;color:var(--muted);line-height:1.6}
+#lock code{background:var(--panel2);padding:2px 6px;border-radius:4px;
+           font:11px var(--mono);color:var(--ink2)}
+
+/* ------------------------------------------------------------- topbar */
+.top{display:flex;align-items:center;gap:14px;padding:11px 20px;background:var(--panel);
+     border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:-.01em;
+      white-space:nowrap}
+.logo i{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;
+        background:linear-gradient(145deg,var(--s1),#1c5cab);color:#fff;
+        font:700 12px/1 var(--sans);font-style:normal}
+.chip{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--mono);
+      padding:6px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.05em;
+      white-space:nowrap;border:1px solid transparent}
+.chip.paper{background:rgba(57,135,229,.14);color:#8cbcf2;border-color:rgba(57,135,229,.3)}
+.chip.shadow{background:rgba(144,133,233,.14);color:#b1a7f0;border-color:rgba(144,133,233,.3)}
+.chip.live{background:rgba(208,59,59,.16);color:#ef8d8d;border-color:rgba(208,59,59,.4)}
+.chip.backtest{background:var(--panel2);color:var(--ink2);border-color:var(--line2)}
+.chip.on{background:rgba(12,163,12,.14);color:#5fd05f;border-color:rgba(12,163,12,.3)}
+.chip.off{background:rgba(250,178,25,.14);color:#f5c563;border-color:rgba(250,178,25,.35)}
+.chip.stopped{background:var(--panel2);color:var(--ink2);border-color:var(--line2)}
+.chip.dead{background:rgba(208,59,59,.16);color:#ef8d8d;border-color:rgba(208,59,59,.4)}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.dot.pulse{animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.equity{margin-left:auto;display:flex;align-items:baseline;gap:9px;white-space:nowrap}
+.equity b{font:650 17px/1 var(--mono)}
+.spacer{flex:1}
+.acts{display:flex;gap:7px}
+.btn{padding:7px 13px;border-radius:var(--r-sm);background:var(--panel2);color:var(--ink);
+     border:1px solid var(--line2);font-size:13px;font-weight:500;transition:.12s;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--raised);border-color:#3d4759}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.pri{background:var(--s1);border-color:var(--s1);color:#fff}
+.btn.pri:hover:not(:disabled){background:#4b93ea}
+.btn.danger{background:rgba(208,59,59,.14);border-color:rgba(208,59,59,.38);color:#ef8d8d}
+.btn.danger:hover:not(:disabled){background:rgba(208,59,59,.24)}
+.btn.sm{padding:5px 10px;font-size:12px}
+
+/* ---------------------------------------------------------------- nav */
+nav{display:flex;gap:3px;padding:0 14px;background:var(--panel);
+    border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+nav button{padding:11px 13px;color:var(--ink2);border-bottom:2px solid transparent;
+           font-size:13.5px;font-weight:500;white-space:nowrap;transition:color .12s}
+nav button:hover{color:var(--ink)}
+nav button.on{color:var(--ink);border-bottom-color:var(--s1)}
+nav button .badge{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:9px;
+                  background:var(--s1);color:#fff;font:600 10px/1.5 var(--mono)}
+
+main{padding:20px;max-width:1400px;margin:0 auto}
+@media(max-width:640px){main{padding:13px}.top{padding:11px 13px}}
+
+/* -------------------------------------------------------------- cards */
+.hero{display:grid;grid-template-columns:minmax(240px,1.15fr) 2fr;gap:14px;margin-bottom:14px}
+@media(max-width:860px){.hero{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+       overflow:hidden}
+.panel > h2{font:600 11.5px/1 var(--sans);margin:0;padding:13px 16px;color:var(--ink2);
+            text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--line);
+            display:flex;align-items:center;gap:8px}
+.panel > h2 .r{margin-left:auto;font:400 11px/1 var(--mono);color:var(--muted);
+               text-transform:none;letter-spacing:0}
+.pad{padding:16px}
+.big{padding:18px 20px}
+.big .lbl{font-size:11.5px;color:var(--ink2);text-transform:uppercase;letter-spacing:.07em}
+.big .num{font:650 34px/1.15 var(--mono);letter-spacing:-.02em;margin:7px 0 4px}
+.big .sub{font-size:13px;color:var(--ink2)}
+
+.stats{display:grid;gap:11px;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
+       margin-bottom:14px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:13px 15px}
+.stat .lbl{font-size:11px;color:var(--ink2);text-transform:uppercase;letter-spacing:.06em}
+.stat .num{font:600 20px/1.25 var(--mono);margin-top:7px;letter-spacing:-.01em}
+.stat .sub{font-size:12px;color:var(--muted);margin-top:4px}
+
+/* P&L: colour is a reinforcement, the glyph + sign carry the meaning */
+.up{color:#5fd05f} .down{color:#ef8d8d} .flat{color:var(--ink2)}
+.delta{display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
+.delta .g{font-size:10px;line-height:1}
+
+/* -------------------------------------------------------------- table */
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:9px 15px;color:var(--muted);font:500 10.5px/1 var(--sans);
+   text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--line);
+   white-space:nowrap;position:sticky;top:0;background:var(--panel);z-index:1}
+th.n,td.n{text-align:right}
+td{padding:10px 15px;border-bottom:1px solid var(--grid);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tbody tr{transition:background .1s}
+tbody tr:hover{background:var(--panel2)}
+.mono{font-family:var(--mono);font-size:12.5px}
+.dim{color:var(--ink2)}
+.faint{color:var(--muted)}
+
+.tag{display:inline-flex;align-items:center;gap:5px;font:600 10.5px/1 var(--sans);
+     padding:4px 8px;border-radius:5px;text-transform:uppercase;letter-spacing:.04em}
+.tag.copy,.tag.active,.tag.open{background:rgba(12,163,12,.14);color:#5fd05f}
+.tag.reject,.tag.degraded,.tag.suspended,.tag.blacklisted{background:rgba(208,59,59,.14);color:#ef8d8d}
+.tag.probation,.tag.pending{background:rgba(250,178,25,.14);color:#f5c563}
+.tag.discovered,.tag.candidate,.tag.analyzing{background:rgba(57,135,229,.14);color:#8cbcf2}
+.tag.closed{background:var(--panel2);color:var(--ink2)}
+
+.codes{display:flex;gap:4px;flex-wrap:wrap}
+.code{font:10.5px/1.5 var(--mono);background:var(--panel2);color:var(--ink2);
+      padding:3px 6px;border-radius:4px;border:1px solid var(--line)}
+
+.bar{height:7px;background:var(--panel2);border-radius:4px;overflow:hidden;
+     min-width:56px;display:inline-block;vertical-align:middle}
+.bar>i{display:block;height:100%;border-radius:4px;background:var(--seq2)}
+
+/* ------------------------------------------------------------- charts */
+.chartwrap{position:relative;padding:8px 6px 4px}
+canvas{width:100%;display:block;cursor:crosshair}
+.tip{position:absolute;pointer-events:none;background:var(--raised);
+     border:1px solid var(--line2);border-radius:var(--r-sm);padding:8px 11px;
+     font-size:12px;box-shadow:var(--shadow);opacity:0;transition:opacity .1s;z-index:5;
+     white-space:nowrap}
+.tip.on{opacity:1}
+.tip .t{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+.tip .v{font:600 14px/1.3 var(--mono);margin-top:3px}
+
+/* -------------------------------------------------------------- empty */
+.empty{padding:40px 22px;text-align:center}
+.empty .ico{font-size:26px;opacity:.5}
+.empty .t{font-weight:600;margin:9px 0 5px;font-size:14px}
+.empty .d{font-size:13px;color:var(--ink2);max-width:400px;margin:0 auto;line-height:1.65}
+.empty .d b{color:var(--ink);font-weight:600}
+
+/* ------------------------------------------------------------- setup */
+.step{display:flex;gap:14px;padding:17px 18px;border-bottom:1px solid var(--line)}
+.step:last-child{border-bottom:none}
+.step .n{width:27px;height:27px;border-radius:50%;flex:none;display:grid;place-items:center;
+         font:600 12px/1 var(--mono);background:var(--panel2);color:var(--muted);
+         border:1px solid var(--line2)}
+.step.done .n{background:rgba(12,163,12,.15);color:#5fd05f;border-color:rgba(12,163,12,.35)}
+.step.now .n{background:rgba(57,135,229,.15);color:#8cbcf2;border-color:rgba(57,135,229,.4)}
+.step .bd{flex:1;min-width:0}
+.step .t{font-weight:600;margin-bottom:3px}
+.step .d{color:var(--ink2);font-size:13px}
+textarea{width:100%;min-height:128px;background:var(--surface);color:var(--ink);
+         border:1px solid var(--line2);border-radius:var(--r-sm);padding:11px 13px;
+         font:12px/1.7 var(--mono);resize:vertical;margin-top:11px}
+textarea:focus{outline:none;border-color:var(--s1);box-shadow:0 0 0 3px rgba(57,135,229,.14)}
+.row{display:flex;gap:9px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.msg{font-size:12.5px;color:var(--ink2)}
+.msg.ok{color:#5fd05f} .msg.bad{color:#ef8d8d}
+.verdict{font:600 13px/1.55 var(--sans);padding:11px 13px;border-radius:var(--r-sm);
+         margin-top:11px;display:flex;gap:9px;align-items:flex-start}
+.verdict.good{background:rgba(12,163,12,.12);color:#7ddc7d}
+.verdict.bad{background:rgba(208,59,59,.12);color:#ef8d8d}
+.verdict.wait{background:rgba(250,178,25,.12);color:#f5c563}
+
+.note{padding:13px 16px;font-size:12.5px;color:var(--ink2);line-height:1.65;
+      border-top:1px solid var(--line);background:var(--surface)}
+.note b{color:var(--ink)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:900px){.cols{grid-template-columns:1fr}}
+
+/* -------------------------------------------------------------- toast */
+#toasts{position:fixed;bottom:18px;right:18px;z-index:60;display:flex;
+        flex-direction:column;gap:9px;max-width:340px}
+.toast{background:var(--raised);border:1px solid var(--line2);border-radius:var(--r-sm);
+       padding:11px 14px;font-size:13px;box-shadow:var(--shadow);
+       animation:slide .22s ease-out;display:flex;gap:9px;align-items:flex-start}
+.toast.ok{border-left:3px solid var(--good)}
+.toast.bad{border-left:3px solid var(--critical)}
+@keyframes slide{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+
+.skel{background:linear-gradient(90deg,var(--panel2) 25%,var(--raised) 50%,var(--panel2) 75%);
+      background-size:200% 100%;animation:sh 1.3s infinite;border-radius:5px;height:13px}
+@keyframes sh{to{background-position:-200% 0}}
+.err{background:rgba(208,59,59,.12);border:1px solid rgba(208,59,59,.3);color:#ef8d8d;
+     padding:11px 14px;border-radius:var(--r-sm);margin-bottom:14px;font-size:13px}
+</style>
+</head>
+<body class="locked">
+
+<div id="lock">
+  <form id="lockform">
+    <div class="mark">A</div>
+    <h1>Adaptive Smart-Money</h1>
+    <p>Enter your access password to continue.</p>
+    <input id="pw" type="password" autocomplete="current-password" placeholder="Password" autofocus>
+    <button type="submit" id="unlock">Unlock</button>
+    <div id="lockmsg"></div>
+  </form>
+</div>
+
+<div class="app">
+  <div class="top">
+    <div class="logo"><i>A</i> <span>Smart-Money</span></div>
+    <span class="chip backtest" id="mode">—</span>
+    <span class="chip off" id="state"><span class="dot"></span><span id="statetext">—</span></span>
+    <div class="equity" id="topequity"></div>
+    <div class="spacer"></div>
+    <div class="acts">
+      <button class="btn sm pri" id="start">Start trading</button>
+      <button class="btn sm" id="pause">Pause</button>
+      <button class="btn sm" id="resume">Resume</button>
+      <button class="btn sm" id="halt">Stop</button>
+      <button class="btn sm danger" id="estop">Emergency stop</button>
+    </div>
+  </div>
+
+  <nav id="tabs">
+    <button data-tab="setup">Setup</button>
+    <button class="on" data-tab="overview">Overview</button>
+    <button data-tab="traders">Traders</button>
+    <button data-tab="trades">Decisions</button>
+    <button data-tab="positions">Positions</button>
+    <button data-tab="harvest">Harvesting</button>
+    <button data-tab="research">Research</button>
+  </nav>
+
+  <main>
+    <div id="notstarted" style="display:none">
+      <div class="panel" style="margin-bottom:14px;border-color:rgba(250,178,25,.35)">
+        <div class="pad" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:230px">
+            <div style="font-weight:650;margin-bottom:4px">Trading is stopped</div>
+            <div class="msg">Nothing is copied until you start it. Once started it keeps
+              running in the background &mdash; you can close this page and it carries on.</div>
+          </div>
+          <button class="btn pri" id="startbig">Start trading</button>
+        </div>
+      </div>
+    </div>
+    <div id="error"></div><div id="view"></div>
+  </main>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+const $  = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+
+/* ---------------------------------------------------------------- auth */
+let TOKEN = localStorage.getItem('asm_token') || '';
+const authHeaders = () => ({'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'});
+
+async function api(path){
+  const r = await fetch(path);
+  if(!r.ok) throw new Error(path+' → HTTP '+r.status);
+  return r.json();
+}
+async function tokenWorks(t){
+  try{ return (await fetch('/auth/check',{headers:{'Authorization':'Bearer '+t}})).status===200; }
+  catch{ return false; }
+}
+function lock(msg){
+  TOKEN=''; localStorage.removeItem('asm_token');
+  document.body.classList.add('locked');
+  $('#lock').style.display='grid';
+  $('#lockmsg').textContent=msg||'';
+  const pw=$('#pw'); pw.value=''; pw.focus();
+}
+function unlockUI(){ document.body.classList.remove('locked'); $('#lock').style.display='none'; }
+
+/* Every mutating call funnels through here, so an invalid password returns the user to
+   one screen instead of failing silently mid-action. */
+async function post(path, body){
+  const r = await fetch(path,{method:'POST',headers:authHeaders(),body:JSON.stringify(body||{})});
+  if(r.status===401){ lock('Your password is no longer valid. Enter it again.'); return {ok:false,error:'locked'}; }
+  if(!r.ok && r.status!==400) return {ok:false,error:'HTTP '+r.status};
+  return r.json();
+}
+
+/* -------------------------------------------------------------- format */
+const n     = v => Number(v||0);
+const abbr  = v => { const a=Math.abs(v);
+  return a>=1e9?(v/1e9).toFixed(2)+'B':a>=1e6?(v/1e6).toFixed(2)+'M':
+         a>=1e4?(v/1e3).toFixed(1)+'K':v.toFixed(2); };
+const usd   = v => (n(v)<0?'−$':'$')+abbr(Math.abs(n(v)));
+const usdEx = v => (n(v)<0?'−$':'$')+Math.abs(n(v)).toLocaleString(undefined,
+                    {minimumFractionDigits:2,maximumFractionDigits:2});
+const pct   = v => n(v).toFixed(2)+'%';
+const dirCls= v => n(v)>0?'up':n(v)<0?'down':'flat';
+/* Glyph + explicit sign, so profit and loss never depend on colour alone -
+   red vs green is ΔE 4.1 under deuteranopia. */
+const glyph = v => n(v)>0?'▲':n(v)<0?'▼':'–';
+const delta = (v,fmt)=>`<span class="delta ${dirCls(v)}"><span class="g">${glyph(v)}</span>${
+  (fmt||usdEx)(Math.abs(n(v)))}</span>`;
+const deltaPct=v=>`<span class="delta ${dirCls(v)}"><span class="g">${glyph(v)}</span>${
+  Math.abs(n(v)).toFixed(2)}%</span>`;
+const short = (s,k=4)=> !s?'—':s.length>2*k+3?s.slice(0,k)+'…'+s.slice(-k):s;
+const esc   = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ago   = t => { if(!t) return '—';
+  const s=(Date.now()-new Date(t))/1000;
+  if(s<60) return Math.max(0,Math.floor(s))+'s ago';
+  if(s<3600) return Math.floor(s/60)+'m ago';
+  if(s<86400) return Math.floor(s/3600)+'h ago';
+  return Math.floor(s/86400)+'d ago'; };
+const when  = t => t? new Date(t).toLocaleString() : '';
+const ms    = v => v==null?'—':(v<1000? v+'ms' : (v/1000).toFixed(1)+'s');
+
+function toast(text, kind){
+  const el=document.createElement('div');
+  el.className='toast '+(kind||'');
+  el.innerHTML=`<span>${kind==='bad'?'⚠':'✓'}</span><span>${esc(text)}</span>`;
+  $('#toasts').appendChild(el);
+  setTimeout(()=>{el.style.opacity='0';setTimeout(()=>el.remove(),250);},4200);
+}
+
+function panel(title, body, right){
+  return `<section class="panel"><h2>${esc(title)}${
+    right?`<span class="r">${right}</span>`:''}</h2>${body}</section>`;
+}
+function table(cols, rows, empty){
+  if(!rows.length) return empty;
+  return `<div class="scroll"><table><thead><tr>${
+    cols.map(c=>`<th${c.n?' class="n"':''}>${esc(c.t??c)}</th>`).join('')
+  }</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+}
+function empty(icon,title,detail){
+  return `<div class="empty"><div class="ico">${icon}</div>
+    <div class="t">${esc(title)}</div><div class="d">${detail}</div></div>`;
+}
+function stat(lbl,num,sub,cls){
+  return `<div class="stat"><div class="lbl">${esc(lbl)}</div>
+    <div class="num ${cls||''}">${num}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>`;
+}
+
+/* ------------------------------------------------------- line chart */
+/* Single series, so no legend box - the panel title names it. Crosshair + tooltip
+   by default; the value is read off the chart, never printed on every point. */
+function lineChart(el, series, opts){
+  opts = opts || {};
+  const pts = series.map(p=>({t:new Date(p.t), v:n(p.v)}));
+  if(pts.length<2){
+    el.closest('.chartwrap').innerHTML = empty('📈','Not enough data yet',
+      'The worker records a snapshot every five minutes. Come back shortly.');
+    return;
+  }
+  const wrap = el.closest('.chartwrap');
+  let tip = wrap.querySelector('.tip');
+  if(!tip){ tip=document.createElement('div'); tip.className='tip'; wrap.appendChild(tip); }
+
+  const H = opts.height||200, PAD={l:8,r:8,t:14,b:20};
+  let W=0, X=[], Y=[];
+
+  function draw(hoverIdx){
+    const dpr=window.devicePixelRatio||1;
+    W = el.clientWidth;
+    el.width=W*dpr; el.height=H*dpr; el.style.height=H+'px';
+    const c=el.getContext('2d'); c.setTransform(dpr,0,0,dpr,0,0); c.clearRect(0,0,W,H);
+
+    const vals=pts.map(p=>p.v);
+    let lo=Math.min(...vals), hi=Math.max(...vals);
+    if(hi===lo){ hi=lo+1; lo=lo-1; }
+    const span=hi-lo, pad=span*0.14; lo-=pad; hi+=pad;
+
+    X=pts.map((_,i)=>PAD.l+(i/(pts.length-1))*(W-PAD.l-PAD.r));
+    Y=pts.map(p=>H-PAD.b-((p.v-lo)/(hi-lo))*(H-PAD.t-PAD.b));
+
+    /* recessive gridlines */
+    c.strokeStyle=getComputedStyle(document.body).getPropertyValue('--grid').trim();
+    c.lineWidth=1;
+    for(let i=0;i<=3;i++){
+      const y=PAD.t+(i/3)*(H-PAD.t-PAD.b);
+      c.beginPath(); c.moveTo(PAD.l,y+.5); c.lineTo(W-PAD.r,y+.5); c.stroke();
+    }
+
+    const rising = vals[vals.length-1]>=vals[0];
+    const col = opts.color || (rising?'#0ca30c':'#d03b3b');
+
+    const g=c.createLinearGradient(0,PAD.t,0,H-PAD.b);
+    g.addColorStop(0, rising?'rgba(12,163,12,.24)':'rgba(208,59,59,.24)');
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    c.beginPath(); c.moveTo(X[0],H-PAD.b);
+    X.forEach((x,i)=>c.lineTo(x,Y[i]));
+    c.lineTo(X[X.length-1],H-PAD.b); c.closePath(); c.fillStyle=g; c.fill();
+
+    c.beginPath(); X.forEach((x,i)=>i?c.lineTo(x,Y[i]):c.moveTo(x,Y[i]));
+    c.strokeStyle=col; c.lineWidth=2; c.lineJoin='round'; c.stroke();
+
+    if(hoverIdx!=null){
+      c.beginPath(); c.moveTo(X[hoverIdx]+.5,PAD.t); c.lineTo(X[hoverIdx]+.5,H-PAD.b);
+      c.strokeStyle='rgba(233,237,245,.28)'; c.lineWidth=1; c.stroke();
+      /* 2px surface ring keeps the marker readable over the fill */
+      c.beginPath(); c.arc(X[hoverIdx],Y[hoverIdx],5,0,7);
+      c.fillStyle=col; c.fill();
+      c.lineWidth=2; c.strokeStyle=getComputedStyle(document.body).getPropertyValue('--panel').trim();
+      c.stroke();
+    }
+  }
+
+  el.onmousemove = e=>{
+    const rect=el.getBoundingClientRect(), x=e.clientX-rect.left;
+    let idx=0, best=1e9;
+    X.forEach((px,i)=>{ const d=Math.abs(px-x); if(d<best){best=d;idx=i;} });
+    draw(idx);
+    tip.innerHTML=`<div class="t">${pts[idx].t.toLocaleString()}</div>
+      <div class="v">${usdEx(pts[idx].v)}</div>`;
+    tip.classList.add('on');
+    const tw=tip.offsetWidth;
+    tip.style.left=Math.min(Math.max(X[idx]-tw/2,4), el.clientWidth-tw-4)+'px';
+    tip.style.top=Math.max(Y[idx]-tip.offsetHeight-12,2)+'px';
+  };
+  el.onmouseleave = ()=>{ tip.classList.remove('on'); draw(null); };
+  draw(null);
+  return draw;
+}
+
+/* ------------------------------------------------------------- views */
+let tab='overview', cache={};
+
+async function viewSetup(){
+  const s = await api('/setup');
+  const firstOpen = s.steps.findIndex(x=>!x.done);
+  const bt = s.steps.find(x=>x.key==='backtest');
+  const v  = bt.verdict||'';
+  const vc = v.startsWith('VIABLE')?'good':(v.startsWith('NEGATIVE')||v.startsWith('RISKY'))?'bad':'wait';
+
+  $('#view').innerHTML = panel(s.ready?'Setup · complete':'Setup',
+    s.steps.map((st,i)=>`
+      <div class="step ${st.done?'done':(i===firstOpen?'now':'')}">
+        <div class="n">${st.done?'✓':i+1}</div>
+        <div class="bd">
+          <div class="t">${esc(st.title)}</div>
+          <div class="d">${esc(st.detail)}</div>
+          ${st.key==='seed'?`
+            <textarea id="wtext" spellcheck="false" placeholder="Paste wallet addresses — one per line
+
+5yb3D1KBy13czATSYGLUbZrYJvRvFQiH9XYkAeG2nDzF
+8psNvWTrdNTiVRNzAgsou9kETXNJm2SXZyaKuJraVRtf
+
+Optional:  address,label,note"></textarea>
+            <div class="row">
+              <button class="btn pri" id="addw">Add wallets</button>
+              <span class="msg" id="wmsg">Stored in the database. Scoring starts automatically.</span>
+            </div>`:''}
+          ${st.key==='backfill'&&st.action?`
+            <div class="row">
+              <button class="btn pri" id="dobf">Score all wallets</button>
+              <span class="msg" id="bfmsg">Reads each wallet's history via Helius. Takes a few minutes.</span>
+            </div>`:''}
+          ${st.key==='backtest'?`
+            ${st.action?`<div class="row">
+              <button class="btn pri" id="dobt">Run backtest</button>
+              <span class="msg" id="btmsg">Replays history through the real rules.</span>
+            </div>`:''}
+            ${v?`<div class="verdict ${vc}"><span>${vc==='good'?'✓':vc==='bad'?'✕':'◔'}</span><span>${esc(v)}</span></div>`:''}`:''}
+        </div>
+      </div>`).join(''))
+    + (s.ready?'':panel('How this works',
+        `<div class="note">Wallets you add start as <b>discovered</b> — watched, never
+         copied. Scoring reconstructs their real on-chain history and measures how much
+         of their edge survives your latency. Only wallets that earn a high enough score
+         are promoted and actually copied.<br><br>
+         Nothing touches the blockchain while the mode is <b>paper</b>, and you should
+         not switch to live until a backtest returns <b>VIABLE</b>.</div>`));
+
+  const setMsg=(id,t,k)=>{const e=$(id); if(e){e.textContent=t;e.className='msg '+(k||'');}};
+
+  const addw=$('#addw');
+  if(addw) addw.onclick=async()=>{
+    const text=$('#wtext').value.trim();
+    if(!text){ setMsg('#wmsg','Paste at least one address first.','bad'); return; }
+    addw.disabled=true; setMsg('#wmsg','Importing…');
+    const r=await post('/setup/wallets',{text,backfill:true});
+    if(!r.ok){ setMsg('#wmsg',r.error,'bad'); toast(r.error,'bad'); addw.disabled=false; return; }
+    toast(`Added ${r.imported} wallet${r.imported===1?'':'s'} · scoring queued`);
+    setTimeout(render,1000);
+  };
+  const bf=$('#dobf');
+  if(bf) bf.onclick=async()=>{
+    bf.disabled=true; setMsg('#bfmsg','Queuing…');
+    const r=await post('/setup/backfill',{});
+    setMsg('#bfmsg', r.ok?`Queued ${r.queued} wallet(s). Scores appear as they finish.`:r.error, r.ok?'ok':'bad');
+    toast(r.ok?`Scoring ${r.queued} wallet(s)`:r.error, r.ok?'':'bad');
+    if(!r.ok) bf.disabled=false;
+  };
+  const btn=$('#dobt');
+  if(btn) btn.onclick=async()=>{
+    btn.disabled=true; setMsg('#btmsg','Queuing…');
+    const r=await post('/setup/backtest',{});
+    setMsg('#btmsg', r.ok?'Running — the verdict appears here when it finishes.':r.error, r.ok?'ok':'bad');
+    toast(r.ok?'Backtest started':r.error, r.ok?'':'bad');
+    if(!r.ok) btn.disabled=false;
+  };
+}
+
+async function viewOverview(){
+  const [p,perf,trades] = await Promise.all([
+    api('/portfolio'), api('/portfolio/performance?hours=168'), api('/trades?limit=10')
+  ]);
+  const eq=n(p.equity_usd), hwm=n(p.high_water_mark_usd);
+  const series=perf.series;
+  const startEq=series.length?n(series[0].equity):eq;
+  const change=eq-startEq;
+  const changePct=startEq?change/startEq*100:0;
+  const tokens=Object.entries(p.exposure.by_token);
+  const maxTok=Math.max(1,...tokens.map(([,v])=>n(v)));
+
+  $('#view').innerHTML = `
+    <div class="hero">
+      ${panel('Portfolio equity',`
+        <div class="big">
+          <div class="lbl">Total equity</div>
+          <div class="num">${usdEx(eq)}</div>
+          <div class="sub">${deltaPct(changePct)} over 7 days · ${delta(change)}</div>
+        </div>
+        <div class="note">
+          High-water mark <b>${usdEx(hwm)}</b> · drawdown ${pct(p.drawdown_pct)}
+          ${n(p.drawdown_pct)>10?' — approaching the limit':''}
+        </div>`)}
+      ${panel('Equity curve','<div class="chartwrap"><canvas id="curve"></canvas></div>',
+              '7 days')}
+    </div>
+
+    <div class="stats">
+      ${stat('Cash','<span class="mono">'+usdEx(p.cash_usd)+'</span>',
+             pct(100-n(p.deployed_pct))+' of equity idle')}
+      ${stat('Deployed','<span class="mono">'+usdEx(p.deployed_usd)+'</span>',
+             pct(p.deployed_pct)+' at risk')}
+      ${stat('Unrealized',delta(p.unrealized_pnl_usd),'on open positions')}
+      ${stat('Realized today',delta(p.realized_pnl_today_usd),'resets 00:00 UTC')}
+      ${stat('Open positions','<span class="mono">'+p.open_positions+'</span>','')}
+      ${stat('Harvested','<span class="mono">'+usdEx(p.harvested_total_usd)+'</span>',
+             'moved out of risk')}
+    </div>
+
+    <div class="cols">
+      ${panel('Exposure by token',
+        table([{t:'Token'},{t:'Exposure',n:true},{t:'Share',n:true}],
+          tokens.sort((a,b)=>n(b[1])-n(a[1])).map(([m,v])=>{
+            const share=eq?n(v)/eq*100:0;
+            return `<tr><td class="mono">${short(m,6)}</td>
+              <td class="n mono">${usdEx(v)}</td>
+              <td class="n"><span class="bar" style="width:64px"><i style="width:${
+                Math.max(4,n(v)/maxTok*100)}%"></i></span>
+              <span class="mono dim" style="margin-left:8px">${pct(share)}</span></td></tr>`;
+          }),
+          empty('◎','No open exposure',
+            'When a followed trader buys and the trade clears every gate, the position appears here.')),
+        tokens.length?tokens.length+' token'+(tokens.length===1?'':'s'):'')}
+
+      ${panel('Latest decisions',
+        table([{t:''},{t:'Trader'},{t:'Token'},{t:'Size',n:true},{t:'Latency',n:true},{t:'When',n:true}],
+          trades.trades.map(t=>`<tr>
+            <td><span class="tag ${t.decision}">${t.decision}</span></td>
+            <td class="mono">${short(t.trader)}</td>
+            <td class="mono">${short(t.mint)}</td>
+            <td class="n mono">${n(t.size_usd)?usdEx(t.size_usd):'—'}</td>
+            <td class="n mono dim">${ms(t.total_copy_latency_ms??t.analysis_latency_ms)}</td>
+            <td class="n faint" title="${when(t.decided_at)}">${ago(t.decided_at)}</td>
+          </tr>`),
+          empty('◷','No decisions yet',
+            'Once the decision service is running and a followed wallet trades, every '
+            +'call — copied <b>and</b> rejected — lands here.')),
+        'last 10')}
+    </div>`;
+
+  const c=$('#curve');
+  if(c){ const redraw=lineChart(c,series.map(x=>({t:x.t,v:x.equity})),{height:196});
+         if(redraw) cache.redraw=redraw; }
+}
+
+async function viewTraders(){
+  const d=await api('/traders?limit=300');
+  const rows=d.traders.map(t=>`<tr>
+    <td class="mono">${short(t.wallet,6)}</td>
+    <td><span class="tag ${t.status}">${t.status}</span></td>
+    <td class="n mono">${n(t.composite_score).toFixed(1)}</td>
+    <td class="n mono">${n(t.copyability_score).toFixed(1)}</td>
+    <td class="n mono">${t.live_replication_score?n(t.live_replication_score).toFixed(1):'—'}</td>
+    <td class="n mono dim">${n(t.confidence).toFixed(0)}</td>
+    <td class="n mono">${t.win_rate?pct(t.win_rate):'—'}</td>
+    <td class="n mono dim">${t.trade_count}</td>
+    <td class="n mono dim">${t.latency_tolerance_ms?ms(t.latency_tolerance_ms):'—'}</td>
+    <td class="n faint" title="${when(t.last_trade_at)}">${ago(t.last_trade_at)}</td>
+  </tr>`);
+  const copyable=d.traders.filter(t=>['active','probation'].includes(t.status)).length;
+
+  $('#view').innerHTML = panel('Traders',
+    table([{t:'Wallet'},{t:'Status'},{t:'Score',n:true},{t:'Copyability',n:true},
+           {t:'Live repl.',n:true},{t:'Conf.',n:true},{t:'Win rate',n:true},
+           {t:'Trades',n:true},{t:'Latency tol.',n:true},{t:'Last seen',n:true}],
+      rows,
+      empty('👤','No traders yet',
+        'Go to <b>Setup</b> and paste the wallet addresses you want to watch.'))
+    + `<div class="note"><b>${copyable}</b> of ${d.traders.length} are copyable
+       (active or probation). The rest are watched so they can earn a score first —
+       <b>copyability</b> is what fraction of a trader's edge survives your latency,
+       and it matters more than raw profit.</div>`,
+    d.traders.length?d.traders.length+' watched':'');
+}
+
+async function viewTrades(){
+  const [d,rej]=await Promise.all([api('/trades?limit=120'),
+                                   api('/trades/stats/rejections?hours=24')]);
+  const top=rej.reasons.slice(0,7);
+  const max=Math.max(1,...top.map(r=>r.count));
+  /* sequential ramp, darkest = largest; validated step gaps */
+  const ramp=['#86b6ef','#5598e7','#2a78d6','#184f95'];
+  const col=i=>ramp[Math.min(ramp.length-1,Math.floor(i/Math.max(1,top.length)*ramp.length))];
+
+  $('#view').innerHTML =
+    panel('Why trades were rejected',
+      table([{t:'Reason'},{t:'Count',n:true},{t:''}],
+        top.map((r,i)=>`<tr>
+          <td class="mono">${esc(r.code)}</td>
+          <td class="n mono">${r.count}</td>
+          <td style="width:46%"><span class="bar" style="width:100%"><i style="width:${
+            r.count/max*100}%;background:${col(i)}"></i></span></td>
+        </tr>`),
+        empty('✓','No rejections in 24 hours',
+          'Either nothing has traded yet, or every signal passed. Check the decision feed below.'))
+      + `<div class="note">The reason at the top is where your thresholds actually bind.
+         If it is <b>PRICE_MOVED_TOO_FAR</b>, those wallets are too fast to copy at your
+         latency. Loosen a gate only through a controlled experiment — never because a
+         rejection looked disappointing.</div>`, 'last 24h')
+    + panel('Decision feed',
+      table([{t:''},{t:'Trader'},{t:'Token'},{t:'Size',n:true},{t:'Detect',n:true},
+             {t:'Decide',n:true},{t:'Reasons'},{t:'When',n:true}],
+        d.trades.map(t=>`<tr>
+          <td><span class="tag ${t.decision}">${t.decision}</span></td>
+          <td class="mono">${short(t.trader)}</td>
+          <td class="mono">${short(t.mint)}</td>
+          <td class="n mono">${n(t.size_usd)?usdEx(t.size_usd):'—'}</td>
+          <td class="n mono dim">${ms(t.observation_latency_ms)}</td>
+          <td class="n mono dim">${ms(t.analysis_latency_ms)}</td>
+          <td><div class="codes">${(t.reason_codes||[]).slice(0,3)
+            .map(c=>`<span class="code">${esc(c)}</span>`).join('')}${
+            (t.reason_codes||[]).length>3?`<span class="code">+${t.reason_codes.length-3}</span>`:''}</div></td>
+          <td class="n faint" title="${when(t.decided_at)}">${ago(t.decided_at)}</td>
+        </tr>`),
+        empty('◷','No decisions recorded',
+          'Every evaluated signal lands here — copied <b>and</b> rejected. '
+          +'Rejections are the more useful half: they show which gate is doing the work.')));
+}
+
+async function viewPositions(){
+  const d=await api('/positions?limit=200');
+  const rows=d.positions.map(p=>{
+    const e=n(p.entry_price), c=n(p.current_price);
+    const pl=e?(c-e)/e*100:0;
+    return `<tr>
+      <td class="mono">${short(p.mint,6)}</td>
+      <td><span class="tag ${p.status}">${p.status}</span></td>
+      <td class="mono dim">${short(p.trader)}</td>
+      <td class="n mono">${usdEx(p.cost_basis_usd)}</td>
+      <td class="n mono dim">${e?e.toPrecision(5):'—'}</td>
+      <td class="n mono">${c?c.toPrecision(5):'—'}</td>
+      <td class="n">${deltaPct(pl)}</td>
+      <td class="n">${delta(p.realized_pnl_usd)}</td>
+      <td class="n mono dim">${p.trailing_armed?'armed':'—'}</td>
+      <td class="n faint" title="${when(p.opened_at)}">${ago(p.opened_at)}</td>
+    </tr>`;
+  });
+  const open=d.positions.filter(p=>p.status==='open').length;
+  $('#view').innerHTML = panel('Positions',
+    table([{t:'Token'},{t:'Status'},{t:'Trader'},{t:'Cost',n:true},{t:'Entry',n:true},
+           {t:'Now',n:true},{t:'P&L',n:true},{t:'Realized',n:true},
+           {t:'Trailing',n:true},{t:'Age',n:true}],
+      rows,
+      empty('◎','No positions',
+        'Positions open when a copied trade fills, and close on a stop, a take-profit '
+        +'rung, a trailing stop, or the source trader selling.')),
+    open?open+' open':'');
+}
+
+async function viewHarvest(){
+  const d=await api('/harvesting');
+  $('#view').innerHTML = `
+    <div class="stats">
+      ${stat('Trigger','<span class="mono">'+pct(d.config.threshold_pct)+'</span>','gain above baseline')}
+      ${stat('Take','<span class="mono">'+pct(d.config.take_pct)+'</span>','of profit, moved out')}
+      ${stat('Floor','<span class="mono">'+usdEx(d.config.min_active_capital_usd)+'</span>','minimum active capital')}
+      ${stat('Destination','<span class="mono" style="font-size:14px">'+short(d.config.destination,6)+'</span>','treasury wallet')}
+    </div>
+    ${panel('Harvest history',
+      table([{t:'When'},{t:'Equity before',n:true},{t:'Harvested',n:true},
+             {t:'Retained',n:true},{t:'Equity after',n:true}],
+        d.events.map(e=>`<tr>
+          <td class="mono dim">${when(e.at)}</td>
+          <td class="n mono">${usdEx(e.equity_before)}</td>
+          <td class="n mono up">${usdEx(e.harvested_usd)}</td>
+          <td class="n mono">${usdEx(e.retained_usd)}</td>
+          <td class="n mono">${usdEx(e.equity_after)}</td>
+        </tr>`),
+        empty('🏦','Nothing harvested yet',
+          'When equity rises past the trigger, a share of the profit is transferred out '
+          +'of the trading wallet. Gains left in the wallet are still at risk.'))
+      + `<div class="note">Profit is only protected once it has <b>left</b> the trading
+         wallet. A failed transfer deliberately does not advance the baseline, so the
+         same gains are never counted as safe twice.</div>`)}`;
+}
+
+async function viewResearch(){
+  const [r,g,cr]=await Promise.all([
+    api('/research?days=30'),
+    api('/research/graph').catch(()=>({clusters:[],relationships:[],note:''})),
+    api('/research/credits').catch(()=>null)
+  ]);
+  const lat=r.latency, tr=r.traders;
+  const budgetCls = cr && !cr.within_budget ? 'down' : '';
+
+  $('#view').innerHTML = `
+    <div class="stats">
+      ${stat('Signals · 30d','<span class="mono">'+r.gates.signals+'</span>','evaluated')}
+      ${stat('Approved','<span class="mono">'+r.gates.approved+'</span>',
+             pct(r.gates.approval_rate_pct)+' approval rate')}
+      ${stat('Detection p50','<span class="mono">'+ms(lat.observation_ms.p50)+'</span>','trader → you')}
+      ${stat('Decide p50','<span class="mono">'+ms(lat.analysis_ms.p50)+'</span>','gates + risk')}
+      ${stat('Total copy p95','<span class="mono">'+ms(lat.total_copy_ms.p95)+'</span>','worst case')}
+      ${cr?stat('Credits today','<span class="mono">'+cr.today.toLocaleString()+'</span>',
+             'of '+cr.daily_budget.toLocaleString()+'/day', budgetCls):''}
+    </div>
+
+    ${panel('Latency', `<div class="note">${esc(lat.advice)}</div>`)}
+
+    ${cr?panel('Helius credit usage',
+      table([{t:'Day'},{t:'Credits',n:true},{t:'Top methods'}],
+        cr.history.slice(0,10).map(d=>`<tr>
+          <td class="mono">${esc(d.day)}</td>
+          <td class="n mono">${d.total.toLocaleString()}</td>
+          <td class="dim mono" style="font-size:11.5px">${
+            Object.entries(d.by_method).sort((a,b)=>b[1]-a[1]).slice(0,3)
+              .map(([k,v])=>esc(k)+' '+v).join(' · ')}</td>
+        </tr>`),
+        empty('◔','No usage recorded yet','Counting begins the next time a service runs.'))
+      + `<div class="note">Projected this month: <b>${cr.month_projection.toLocaleString()}</b>
+         of ${cr.monthly_budget.toLocaleString()}${
+           cr.headroom_pct!=null?` · ${cr.headroom_pct}% headroom`:''}.
+         ${esc(cr.note)}</div>`,
+      cr.within_budget?'within budget':'over budget'):''}
+
+    ${panel('Trader contribution',
+      table([{t:'Wallet'},{t:'Closed',n:true},{t:'Realized P&L',n:true},
+             {t:'Deployed',n:true},{t:'Return',n:true}],
+        tr.contributors.map(c=>`<tr>
+          <td class="mono">${short(c.wallet,6)}</td>
+          <td class="n mono dim">${c.closed_trades}</td>
+          <td class="n">${delta(c.realized_pnl_usd)}</td>
+          <td class="n mono dim">${usdEx(c.capital_deployed_usd)}</td>
+          <td class="n">${deltaPct(c.return_on_deployed_pct)}</td>
+        </tr>`),
+        empty('📊','No closed positions in this window',
+          'Contribution is measured from closed trades, so it fills in once positions start exiting.'))
+      + `<div class="note">${esc(tr.note)}</div>`, 'last 30 days')}
+
+    ${g.clusters.length?panel('Wallet clusters',
+      table([{t:'Wallets'},{t:'Size',n:true},{t:'Allocation',n:true}],
+        g.clusters.map(c=>`<tr>
+          <td class="mono">${c.wallets.map(w=>short(w)).join(', ')}</td>
+          <td class="n mono">${c.size}</td>
+          <td class="n mono down">×${c.size_multiplier}</td>
+        </tr>`),'')
+      + `<div class="note">${esc(g.note)}</div>`,'linked wallets'):''}`;
+}
+
+const VIEWS={setup:viewSetup,overview:viewOverview,traders:viewTraders,
+             trades:viewTrades,positions:viewPositions,harvest:viewHarvest,
+             research:viewResearch};
+
+async function render(){
+  try{ $('#error').innerHTML=''; await VIEWS[tab](); }
+  catch(e){ $('#error').innerHTML=`<div class="err">${esc(e.message)} — is the API still running?</div>`; }
+}
+
+async function heartbeat(){
+  try{
+    const h=await api('/health');
+    $('#mode').textContent=h.mode;
+    $('#mode').className='chip '+h.mode;
+    const st=h.system_state, running=st==='running', started=h.started!==false;
+    $('#state').className='chip '+(running?'on':st==='killed'?'dead':st==='stopped'?'stopped':'off');
+    $('#state').innerHTML=`<span class="dot${running?' pulse':''}"></span>`
+      +`<span>${esc(st==='stopped'?'not started':st.replace(/_/g,' '))}</span>`;
+
+    /* Only ever show the buttons that apply to the current state, so there is never
+       a live-looking control that silently does nothing. */
+    const show=(id,on)=>{const e=$(id); if(e) e.style.display=on?'':'none';};
+    show('#start', !running && st!=='killed');
+    show('#pause', running);
+    show('#resume', st==='soft_paused'||st==='hard_paused');
+    show('#halt', running||st==='soft_paused');
+    show('#estop', started && st!=='killed');
+    const banner=$('#notstarted');
+    if(banner) banner.style.display = (st==='stopped') ? '' : 'none';
+    const eq=n(h.equity_usd);
+    $('#topequity').innerHTML=`<span class="faint" style="font-size:11.5px">EQUITY</span>
+      <b>${usdEx(eq)}</b>`;
+  }catch{
+    $('#state').className='chip dead';
+    $('#state').innerHTML='<span class="dot"></span><span>offline</span>';
+  }
+}
+
+/* ------------------------------------------------------------ wiring */
+$('#tabs').onclick=e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  $$('#tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  tab=b.dataset.tab; render();
+};
+
+async function control(fn, label){
+  try{
+    const r=await fn();
+    if(r && r.ok===false){ toast(r.error||'Request failed','bad'); }
+    else if(label){ toast(label); }
+  }catch(e){ toast(e.message,'bad'); }
+  heartbeat();
+}
+const doStart=()=>control(()=>post('/system/start'),
+  'Trading started — it keeps running even if you close this page');
+$('#start').onclick   =doStart;
+$('#startbig').onclick=doStart;
+$('#pause').onclick =()=>control(()=>post('/system/pause',{hard:false}),'Paused');
+$('#resume').onclick=()=>control(()=>post('/system/resume'),'Resumed');
+$('#halt').onclick  =()=>control(async()=>{
+  if(!confirm('Stop trading?\n\nNo new positions will be opened. Open positions are '
+             +'still managed and will still exit normally.')) return null;
+  return post('/system/stop');
+},'Trading stopped');
+$('#estop').onclick =()=>control(async()=>{
+  if(!confirm('EMERGENCY STOP\n\nThis halts all signing immediately and queues a '
+             +'liquidation of every open position.\n\nContinue?')) return null;
+  const r=await post('/system/emergency-stop',{exit_positions:true});
+  render(); return r;
+},'Emergency stop engaged');
+
+let resizeT;
+window.addEventListener('resize',()=>{
+  clearTimeout(resizeT);
+  resizeT=setTimeout(()=>{ if(tab==='overview') render(); },180);
+});
+
+$('#lockform').onsubmit=async e=>{
+  e.preventDefault();
+  const entered=$('#pw').value.trim();
+  if(!entered) return;
+  $('#unlock').disabled=true; $('#lockmsg').textContent='';
+  if(await tokenWorks(entered)){
+    TOKEN=entered; localStorage.setItem('asm_token',TOKEN);
+    unlockUI(); await boot();
+  }else{
+    $('#lockmsg').innerHTML='<span>⚠</span><span>Incorrect password.</span>';
+    $('#pw').value=''; $('#pw').focus();
+  }
+  $('#unlock').disabled=false;
+};
+
+async function boot(){
+  try{
+    const s=await api('/setup');
+    if(!s.ready){
+      tab='setup';
+      $$('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab==='setup'));
+    }
+  }catch{}
+  heartbeat(); render();
+}
+
+(async()=>{
+  if(TOKEN && await tokenWorks(TOKEN)){ unlockUI(); await boot(); }
+  else lock(TOKEN?'Saved password is no longer valid.':'');
+  const live=()=>!document.body.classList.contains('locked');
+  setInterval(()=>{ if(live()) heartbeat(); },5000);
+  setInterval(()=>{ if(live() && tab!=='setup') render(); },20000);
+})();
+</script>
+</body>
+</html>
