@@ -87,7 +87,7 @@ async def test_placeholder_password_is_never_accepted(client, monkeypatch):
     assert r.status_code == 401
 
 
-async def test_dashboard_never_stores_the_token():
+def test_dashboard_never_stores_the_token():
     """Guards against a regression back to localStorage."""
     from pathlib import Path
 

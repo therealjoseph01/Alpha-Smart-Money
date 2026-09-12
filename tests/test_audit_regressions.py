@@ -266,7 +266,8 @@ async def test_default_api_token_cannot_authorize_mutations(monkeypatch):
     assert not token_is_valid("dev-token-change-me")
 
     class _Req:
-        cookies: dict = {}
+        def __init__(self):
+            self.cookies: dict = {}
 
     with pytest.raises(HTTPException):
         await require_token(_Req(), "Bearer dev-token-change-me")
