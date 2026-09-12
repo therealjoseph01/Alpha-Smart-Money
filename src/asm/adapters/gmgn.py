@@ -33,7 +33,7 @@ from asm.logging import get_logger
 
 log = get_logger(__name__)
 
-BASE_URL = "https://api.gmgn.ai"
+BASE_URL = "https://openapi.gmgn.ai"
 MAX_WALLETS_PER_CALL = 100
 
 # Endpoint weights, from GMGN's published rate table. calls/sec = plan weight / weight.
@@ -78,10 +78,13 @@ class GmgnClient(HttpAdapter):
         key = api_key if api_key is not None else settings.gmgn_api_key
         super().__init__(
             base_url=BASE_URL,
+            # X-APIKEY, not Authorization: Bearer. Verified against the official
+            # gmgn-cli client rather than inferred - every Bearer variant returns
+            # AUTH_INVALID with a message that does not say why.
             headers={
-                "Authorization": f"Bearer {key}",
-                "Accept": "application/json",
+                "X-APIKEY": key,
                 "Content-Type": "application/json",
+                "User-Agent": "asm/0.1",
             },
             breaker_threshold=3,
             breaker_cooldown=120.0,
@@ -106,14 +109,28 @@ class GmgnClient(HttpAdapter):
             await asyncio.sleep(wait)
         self._last[path] = asyncio.get_event_loop().time()
 
+    @staticmethod
+    def _auth_query() -> dict[str, Any]:
+        """Every request carries a unix timestamp and a fresh client_id.
+
+        Not documented as required, but the API returns AUTH_INVALID without them -
+        with a message that blames the key, which is a long way from the real cause.
+        """
+        import time
+        import uuid
+
+        return {"timestamp": int(time.time()), "client_id": str(uuid.uuid4())}
+
     async def _get(self, path: str, **params) -> Any:
         await self._pace(path)
-        data = await self.get(path, params={k: v for k, v in params.items() if v is not None})
+        query = {k: v for k, v in params.items() if v is not None}
+        query.update(self._auth_query())
+        data = await self.get(path, params=query)
         return self._unwrap(data)
 
     async def _post(self, path: str, body: dict) -> Any:
         await self._pace(path)
-        data = await self.post(path, json=body)
+        data = await self.post(path, params=self._auth_query(), json=body)
         return self._unwrap(data)
 
     @staticmethod
@@ -177,7 +194,7 @@ class GmgnClient(HttpAdapter):
             batch = wallets[i:i + MAX_WALLETS_PER_CALL]
             try:
                 data = await self._post("/v1/user/wallet_profits", {
-                    "chain": chain, "period": period, "wallets": batch,
+                    "chain": chain, "period": period, "wallet_addresses": batch,
                 })
             except ProviderError as exc:
                 log.warning("gmgn_profits_failed", batch=len(batch), error=str(exc))
@@ -195,7 +212,7 @@ class GmgnClient(HttpAdapter):
             return {}
         try:
             return await self._get("/v1/user/wallet_stats", chain=chain,
-                                   wallet=wallet, period=period) or {}
+                                   wallet_address=wallet, period=period) or {}
         except ProviderError as exc:
             log.warning("gmgn_wallet_stats_failed", wallet=wallet[:8], error=str(exc))
             return {}
@@ -205,7 +222,7 @@ class GmgnClient(HttpAdapter):
         if not self.enabled:
             return {}
         try:
-            return await self._get("/v1/token/security", chain=chain, address=mint) or {}
+            return await self._get("/v1/token/security", chain=chain, token_address=mint) or {}
         except ProviderError:
             return {}
 
