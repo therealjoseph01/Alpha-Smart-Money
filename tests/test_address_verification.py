@@ -9,8 +9,6 @@ Base58 validity was the only check. It is not enough.
 """
 from __future__ import annotations
 
-import pytest
-
 from asm.ingest.verify import SYSTEM_PROGRAM, TOKEN_PROGRAMS, Verdict, verify
 
 
