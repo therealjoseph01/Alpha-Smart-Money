@@ -41,12 +41,13 @@ class Field:
     section: str          # "risk" | "copyability" | "root"
     attr: str
     label: str
-    kind: str             # "decimal" | "int"
-    lo: Decimal
-    hi: Decimal
+    kind: str             # "decimal" | "int" | "address"
+    lo: Decimal = Decimal(0)
+    hi: Decimal = Decimal(0)
     unit: str = ""
     help: str = ""
     danger: bool = False  # a hard risk limit - warn before widening
+    placeholder: str = ""
 
 
 # The complete set an operator may change at runtime. Anything not listed here is
@@ -134,8 +135,31 @@ FIELDS: tuple[Field, ...] = (
           "Reject once the price has already moved this far since the trader bought."),
 )
 
-BY_KEY = {f.key: f for f in FIELDS}
+# Your own two wallets. Public addresses, never keys - the private key lives only in
+# the signer process, which is why these are safe to keep in the database and edit
+# from the dashboard. Nothing reads them until live mode; the shadow -> live gate
+# refuses to promote while either is empty.
+WALLET_FIELDS: tuple[Field, ...] = (
+    Field("trading_wallet_pubkey", "root", "trading_wallet_pubkey",
+          "Trading wallet", "address",
+          help="The wallet that buys and sells. Fund it with only what you accept "
+               "losing - everything the system risks comes from here.",
+          placeholder="Solana address"),
+    Field("treasury_wallet_pubkey", "root", "treasury_wallet_pubkey",
+          "Treasury wallet", "address",
+          help="Where harvested profit is moved. Use a SEPARATE wallet whose private "
+               "key the trading system does not hold, so banked profit cannot be "
+               "spent by the bot even if something goes wrong.",
+          placeholder="Solana address"),
+)
+
+ALL_FIELDS = FIELDS + WALLET_FIELDS
+BY_KEY = {f.key: f for f in ALL_FIELDS}
 _last_refresh = 0.0
+
+# base58 - Bitcoin's alphabet, which Solana uses. 0, O, I and l are absent because
+# they are the characters people transcribe wrongly.
+B58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
 
 
 class ConfigError(ValueError):
@@ -147,7 +171,31 @@ def _target(field: Field) -> Any:
             "root": settings}[field.section]
 
 
-def coerce(field: Field, raw: Any) -> Decimal | int:
+def coerce(field: Field, raw: Any) -> Decimal | int | str:
+    if field.kind == "address":
+        return _coerce_address(field, raw)
+    return _coerce_number(field, raw)
+
+
+def _coerce_address(field: Field, raw: Any) -> str:
+    """Validate the shape here, because the first place an invalid one shows up
+    otherwise is a failed transaction with real money already committed."""
+    value = str(raw or "").strip()
+    if not value:
+        return ""            # clearing it is allowed; the live gate then blocks
+    bad = sorted(set(value) - B58)
+    if bad:
+        raise ConfigError(
+            f"{field.label}: not a Solana address - "
+            f"{', '.join(repr(c) for c in bad[:4])} cannot appear in one")
+    if not 32 <= len(value) <= 44:
+        raise ConfigError(
+            f"{field.label}: a Solana address is 32-44 characters, this is "
+            f"{len(value)}")
+    return value
+
+
+def _coerce_number(field: Field, raw: Any) -> Decimal | int:
     try:
         value = Decimal(str(raw).strip().rstrip("%$").strip())
     except (InvalidOperation, AttributeError, TypeError) as exc:
@@ -161,13 +209,16 @@ def coerce(field: Field, raw: Any) -> Decimal | int:
 def current() -> dict[str, Any]:
     """Every tunable field with its live value, bounds and help text."""
     out = {}
-    for f in FIELDS:
+    for f in ALL_FIELDS:
         value = getattr(_target(f), f.attr)
         out[f.key] = {
             "label": f.label, "value": str(value), "unit": f.unit,
             "min": str(f.lo), "max": str(f.hi), "kind": f.kind,
             "help": f.help, "danger": f.danger,
-            "section": {"root": "Capital", "risk": "Risk",
+            "placeholder": f.placeholder,
+            "is_set": bool(value) if f.kind == "address" else None,
+            "section": "Wallets" if f in WALLET_FIELDS else
+                       {"root": "Capital", "risk": "Risk",
                         "copyability": "Gates"}[f.section],
         }
     return out
@@ -181,6 +232,18 @@ async def apply(changes: dict[str, Any], *, actor: str = "api") -> dict[str, Any
         if field is None:
             raise ConfigError(f"unknown setting: {key}")
         validated[key] = coerce(field, raw)
+
+    # Harvesting to the trading wallet moves profit from one pocket to the same
+    # pocket: it would still be at risk while the dashboard reported it banked.
+    trading = validated.get("trading_wallet_pubkey",
+                            settings.trading_wallet_pubkey)
+    treasury = validated.get("treasury_wallet_pubkey",
+                             settings.treasury_wallet_pubkey)
+    if trading and treasury and trading == treasury:
+        raise ConfigError(
+            "Treasury wallet must be a different wallet from the trading wallet - "
+            "harvesting into the trading wallet does not take the profit off the "
+            "table.")
 
     before = {k: str(getattr(_target(BY_KEY[k]), BY_KEY[k].attr)) for k in validated}
 
@@ -260,6 +323,8 @@ async def reset(*, actor: str = "api") -> dict[str, str]:
         await s.execute(delete(M.StrategyConfig).where(
             M.StrategyConfig.name == "runtime"))
 
+    # FIELDS, not ALL_FIELDS: "reset to defaults" means the strategy numbers, not
+    # your wallet addresses.
     defaults_risk, defaults_copy = RiskConfig(), CopyabilityConfig()
     for f in FIELDS:
         src = {"risk": defaults_risk, "copyability": defaults_copy,
