@@ -106,19 +106,26 @@ async def test_enforces_its_own_value_ceiling(daemon):
 async def test_socket_is_private_to_this_user(daemon):
     """No network listener, and 0600 - if you cannot run code as this user you
     cannot ask it to sign anything."""
-    mode = os.stat(SOCK).st_mode & 0o777
-    assert mode == 0o600
+    import asyncio
+
+    st = await asyncio.to_thread(os.stat, SOCK)
+    assert st.st_mode & 0o777 == 0o600
 
 
 async def test_socket_is_removed_on_shutdown(redis, monkeypatch):
     from solders.keypair import Keypair
 
     monkeypatch.setenv("SOLANA_KEYPAIR", json.dumps(list(bytes(Keypair()))))
-    svc = SignerService("/tmp/asm-signer-shutdown.sock")
+    import asyncio
+
+    sock = "/tmp/asm-signer-shutdown.sock"
+    exists = lambda: asyncio.to_thread(os.path.exists, sock)  # noqa: E731
+
+    svc = SignerService(sock)
     await svc.start()
-    assert os.path.exists("/tmp/asm-signer-shutdown.sock")
+    assert await exists()
     await svc.stop()
-    assert not os.path.exists("/tmp/asm-signer-shutdown.sock")
+    assert not await exists()
 
 
 async def test_errors_never_echo_transaction_bytes(daemon):
