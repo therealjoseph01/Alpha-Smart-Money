@@ -1,0 +1,87 @@
+# Dokploy: create a Compose service pointing at this file.
+#
+# Five containers share one SQLite file on a named volume. That works because they are
+# on the same host and SQLite is in WAL mode with a 30s busy timeout - readers never
+# block the writer, and the writer waits rather than failing. If write volume ever
+# outgrows a single writer, point DATABASE_URL at Postgres; the schema is portable.
+
+x-app: &app
+  build: .
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    # Absolute path: a relative one depends on the working directory, which differs
+    # between containers and would silently create a second, empty database.
+    DATABASE_URL: sqlite+aiosqlite:////app/data/asm.db
+    REDIS_URL: redis://redis:6379/0
+    PYTHONPATH: /app/src
+  volumes:
+    - asm-data:/app/data
+    - asm-logs:/app/logs
+  depends_on:
+    redis:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # appendonly so the risk ledger and sessions survive a restart. Without it a
+    # redeploy would reset deployed capital to zero while positions are still open.
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy noeviction
+    volumes:
+      - asm-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Runs once per deploy and exits. Everything else waits for it, so no service ever
+  # starts against a schema it does not understand.
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:////app/data/asm.db
+      PYTHONPATH: /app/src
+    volumes:
+      - asm-data:/app/data
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *app
+    command: ["uvicorn", "asm.services.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    <<: *app
+    command: ["arq", "asm.services.worker.WorkerSettings"]
+
+  decision:
+    <<: *app
+    command: ["python", "-m", "asm.services.decision_service"]
+
+  positions:
+    <<: *app
+    command: ["python", "-m", "asm.services.position_service"]
+
+volumes:
+  asm-data:
+  asm-redis:
+  asm-logs:

@@ -1,0 +1,17 @@
+.venv/
+.git/
+.env
+.env.*
+!.env.example
+data/
+logs/
+tests/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.db
+*.db-wal
+*.db-shm
+seeds/wallets.txt
