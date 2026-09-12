@@ -234,16 +234,54 @@ async def restore_wallet(wallet: str, _: Auth, db: DB):
     return {"ok": True, "wallet": wallet, "status": "discovered"}
 
 
+# Scoring reads wallet history through the Enhanced Transactions API at 100 credits a
+# page, ~250 per wallet. The scheduled path is budgeted; this button was not, so a
+# watchlist that had grown to a few hundred would queue tens of thousands of credits
+# from one click with no warning.
+CREDITS_PER_WALLET = 250
+MAX_UNCONFIRMED_WALLETS = 40
+
+
 @router.post("/backfill")
-async def run_backfill(_: Auth, db: DB, pages: int = Body(default=settings.backfill_pages, embed=True)):
-    """Queue a history backfill + rescore for every watched wallet."""
-    wallets = await repo.watchlist_wallets(db)
+async def run_backfill(_: Auth, db: DB,
+                       pages: int = Body(default=settings.backfill_pages, embed=True),
+                       confirm: bool = Body(default=False, embed=True),
+                       only_unscored: bool = Body(default=True, embed=True)):
+    """Queue scoring for watched wallets, with the cost stated before it is spent."""
+    from sqlalchemy import select
+
+    if only_unscored:
+        rows = (await db.execute(
+            select(M.Trader.wallet_address).where(
+                M.Trader.status.notin_([TraderStatus.BLACKLISTED.value,
+                                        TraderStatus.SUSPENDED.value]),
+                M.Trader.composite_score == 0,
+            )
+        )).scalars().all()
+        wallets = list(rows)
+    else:
+        wallets = await repo.watchlist_wallets(db)
+
     if not wallets:
-        return {"ok": False, "error": "no wallets to backfill; seed some first"}
+        return {"ok": True, "queued": 0,
+                "note": "Nothing to score — every watched wallet already has a score."}
+
+    estimate = len(wallets) * CREDITS_PER_WALLET
+    if len(wallets) > MAX_UNCONFIRMED_WALLETS and not confirm:
+        return {
+            "ok": False,
+            "needs_confirmation": True,
+            "wallets": len(wallets),
+            "estimated_credits": estimate,
+            "error": (f"This would score {len(wallets)} wallets and use about "
+                      f"{estimate:,} Helius credits. Confirm to continue."),
+        }
+
     for wallet in wallets:
         await _enqueue("backfill_wallet", wallet, pages)
-    return {"ok": True, "queued": len(wallets),
-            "note": "Scoring runs on the worker and can take a few minutes."}
+    return {"ok": True, "queued": len(wallets), "estimated_credits": estimate,
+            "note": f"Scoring {len(wallets)} wallet(s), about {estimate:,} credits. "
+                    "Runs on the worker and takes a few minutes."}
 
 
 @router.post("/backtest")

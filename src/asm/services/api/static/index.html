@@ -734,12 +734,30 @@ async function viewTraders(){
   };
 
   $('#scoreall').onclick = async () => {
-    $('#scoreall').disabled = true; msg('Queuing…');
-    const r = await post('/setup/backfill', {});
-    msg(r.ok ? `Scoring ${r.queued} wallet(s) — scores appear as they finish.`
-             : esc(r.error), r.ok ? 'ok' : 'bad');
-    toast(r.ok ? `Scoring ${r.queued} wallet(s)` : r.error, r.ok ? '' : 'bad');
-    if(!r.ok) $('#scoreall').disabled = false;
+    $('#scoreall').disabled = true; msg('Checking…');
+    let r = await post('/setup/backfill', {});
+
+    /* Scoring costs real Helius credits. Above a threshold the server refuses and
+       reports the estimate instead, so the number is seen before it is spent. */
+    if(r.needs_confirmation){
+      const go = await confirmDialog({
+        title: 'Score ' + r.wallets + ' wallets?',
+        body: `This reads each wallet's history from Helius.<ul>
+               <li>About <b>${r.estimated_credits.toLocaleString()} credits</b></li>
+               <li>Roughly <b>${(r.estimated_credits/10000).toFixed(1)}%</b> of a
+                   1,000,000/month plan</li>
+               <li>Only wallets without a score are read — nothing is re-read</li></ul>`,
+        ok: 'Score them',
+      });
+      if(!go){ msg('Cancelled.'); $('#scoreall').disabled = false; return; }
+      r = await post('/setup/backfill', {confirm: true});
+    }
+
+    msg(r.ok ? esc(r.note || `Scoring ${r.queued} wallet(s).`) : esc(r.error),
+        r.ok ? 'ok' : 'bad');
+    toast(r.ok ? (r.queued ? `Scoring ${r.queued} wallet(s)` : 'Nothing to score')
+               : r.error, r.ok ? '' : 'bad');
+    if(!r.ok || !r.queued) $('#scoreall').disabled = false;
   };
 
   $('#showrm').onchange = e => { cache.showRemoved = e.target.checked; render(); };
