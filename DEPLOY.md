@@ -32,12 +32,22 @@ Generate the token with:
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-`DATABASE_URL` and `REDIS_URL` are set by the compose file and must not be overridden —
-they point at the shared volume and the redis container.
+### Do not paste these
 
-There is no `MODE` here. A fresh database starts in paper, and the mode is changed from
-the dashboard so the promotion gates are enforced — an environment variable could have
-put a restart straight into live without the evidence behind it.
+Your local `.env` has more in it. The rest is either wrong for a container or does
+nothing, and pasting it causes real problems rather than clutter:
+
+| Leave out | Why |
+|---|---|
+| `DATABASE_URL` | Compose sets it to `/app/data/asm.db` on the shared volume. A local path here makes each container create its own empty database. |
+| `REDIS_URL` | Compose points it at the redis container. `localhost` inside a container is that container. |
+| `MODE` | Not read any more. A fresh database starts in paper and the mode is changed from the dashboard, where the promotion gates are enforced. |
+| `LOG_LEVEL` | `INFO` is the default. |
+| `HELIUS_RPC_URL`, `HELIUS_WS_URL` | Derived from the API key when blank. |
+| `RPC_FALLBACK_URL` | Already the default public endpoint. |
+| `GMGN_PLAN_WEIGHT` | `5` is the default, correct for the free plan. |
+| `TRADING_WALLET_PUBKEY`, `TREASURY_WALLET_PUBKEY` | Blank until you go live. Add them then. |
+| `SOLANA_KEYPAIR` | Never. Production signs through the isolated signer process. |
 
 ## 3. Deploy
 
