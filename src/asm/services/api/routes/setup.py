@@ -210,6 +210,12 @@ async def run_discovery(_: Auth, auto_add: bool = Body(default=True, embed=True)
     return await discover_wallets({}, auto_add=auto_add)
 
 
+@router.post("/wallets/{wallet}/remove")
+async def remove_wallet_post(wallet: str, _: Auth, db: DB):
+    """POST mirror of the DELETE route, so the dashboard needs only one verb."""
+    return await remove_wallet(wallet, _, db)
+
+
 @router.post("/wallets/{wallet}/restore")
 async def restore_wallet(wallet: str, _: Auth, db: DB):
     """Put a removed wallet back on the watchlist as an unproven candidate."""

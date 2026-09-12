@@ -254,7 +254,6 @@ textarea:focus{outline:none;border-color:var(--s1);box-shadow:0 0 0 3px rgba(57,
   </div>
 
   <nav id="tabs">
-    <button data-tab="setup">Setup</button>
     <button class="on" data-tab="overview">Overview</button>
     <button data-tab="traders">Traders</button>
     <button data-tab="trades">Decisions</button>
@@ -465,82 +464,6 @@ function lineChart(el, series, opts){
 /* ------------------------------------------------------------- views */
 let tab='overview', cache={};
 
-async function viewSetup(){
-  const s = await api('/setup');
-  const firstOpen = s.steps.findIndex(x=>!x.done);
-  const bt = s.steps.find(x=>x.key==='backtest');
-  const v  = bt.verdict||'';
-  const vc = v.startsWith('VIABLE')?'good':(v.startsWith('NEGATIVE')||v.startsWith('RISKY'))?'bad':'wait';
-
-  $('#view').innerHTML = panel(s.ready?'Setup · complete':'Setup',
-    s.steps.map((st,i)=>`
-      <div class="step ${st.done?'done':(i===firstOpen?'now':'')}">
-        <div class="n">${st.done?'✓':i+1}</div>
-        <div class="bd">
-          <div class="t">${esc(st.title)}</div>
-          <div class="d">${esc(st.detail)}</div>
-          ${st.key==='seed'?`
-            <textarea id="wtext" spellcheck="false" placeholder="Paste wallet addresses — one per line
-
-5yb3D1KBy13czATSYGLUbZrYJvRvFQiH9XYkAeG2nDzF
-8psNvWTrdNTiVRNzAgsou9kETXNJm2SXZyaKuJraVRtf
-
-Optional:  address,label,note"></textarea>
-            <div class="row">
-              <button class="btn pri" id="addw">Add wallets</button>
-              <span class="msg" id="wmsg">Stored in the database. Scoring starts automatically.</span>
-            </div>`:''}
-          ${st.key==='backfill'&&st.action?`
-            <div class="row">
-              <button class="btn pri" id="dobf">Score all wallets</button>
-              <span class="msg" id="bfmsg">Reads each wallet's history via Helius. Takes a few minutes.</span>
-            </div>`:''}
-          ${st.key==='backtest'?`
-            ${st.action?`<div class="row">
-              <button class="btn pri" id="dobt">Run backtest</button>
-              <span class="msg" id="btmsg">Replays history through the real rules.</span>
-            </div>`:''}
-            ${v?`<div class="verdict ${vc}"><span>${vc==='good'?'✓':vc==='bad'?'✕':'◔'}</span><span>${esc(v)}</span></div>`:''}`:''}
-        </div>
-      </div>`).join(''))
-    + (s.ready?'':panel('How this works',
-        `<div class="note">Wallets you add start as <b>discovered</b> — watched, never
-         copied. Scoring reconstructs their real on-chain history and measures how much
-         of their edge survives your latency. Only wallets that earn a high enough score
-         are promoted and actually copied.<br><br>
-         Nothing touches the blockchain while the mode is <b>paper</b>, and you should
-         not switch to live until a backtest returns <b>VIABLE</b>.</div>`));
-
-  const setMsg=(id,t,k)=>{const e=$(id); if(e){e.textContent=t;e.className='msg '+(k||'');}};
-
-  const addw=$('#addw');
-  if(addw) addw.onclick=async()=>{
-    const text=$('#wtext').value.trim();
-    if(!text){ setMsg('#wmsg','Paste at least one address first.','bad'); return; }
-    addw.disabled=true; setMsg('#wmsg','Importing…');
-    const r=await post('/setup/wallets',{text,backfill:true});
-    if(!r.ok){ setMsg('#wmsg',r.error,'bad'); toast(r.error,'bad'); addw.disabled=false; return; }
-    toast(`Added ${r.imported} wallet${r.imported===1?'':'s'} · scoring queued`);
-    setTimeout(render,1000);
-  };
-  const bf=$('#dobf');
-  if(bf) bf.onclick=async()=>{
-    bf.disabled=true; setMsg('#bfmsg','Queuing…');
-    const r=await post('/setup/backfill',{});
-    setMsg('#bfmsg', r.ok?`Queued ${r.queued} wallet(s). Scores appear as they finish.`:r.error, r.ok?'ok':'bad');
-    toast(r.ok?`Scoring ${r.queued} wallet(s)`:r.error, r.ok?'':'bad');
-    if(!r.ok) bf.disabled=false;
-  };
-  const btn=$('#dobt');
-  if(btn) btn.onclick=async()=>{
-    btn.disabled=true; setMsg('#btmsg','Queuing…');
-    const r=await post('/setup/backtest',{});
-    setMsg('#btmsg', r.ok?'Running — the verdict appears here when it finishes.':r.error, r.ok?'ok':'bad');
-    toast(r.ok?'Backtest started':r.error, r.ok?'':'bad');
-    if(!r.ok) btn.disabled=false;
-  };
-}
-
 async function viewOverview(){
   const [p,perf,trades] = await Promise.all([
     api('/portfolio'), api('/portfolio/performance?hours=168'), api('/trades?limit=10')
@@ -618,33 +541,123 @@ async function viewOverview(){
 }
 
 async function viewTraders(){
-  const d=await api('/traders?limit=300');
-  const rows=d.traders.map(t=>`<tr>
-    <td class="mono">${short(t.wallet,6)}</td>
-    <td><span class="tag ${t.status}">${t.status}</span></td>
-    <td class="n mono">${n(t.composite_score).toFixed(1)}</td>
-    <td class="n mono">${n(t.copyability_score).toFixed(1)}</td>
-    <td class="n mono">${t.live_replication_score?n(t.live_replication_score).toFixed(1):'—'}</td>
-    <td class="n mono dim">${n(t.confidence).toFixed(0)}</td>
-    <td class="n mono">${t.win_rate?pct(t.win_rate):'—'}</td>
-    <td class="n mono dim">${t.trade_count}</td>
-    <td class="n mono dim">${t.latency_tolerance_ms?ms(t.latency_tolerance_ms):'—'}</td>
-    <td class="n faint" title="${when(t.last_trade_at)}">${ago(t.last_trade_at)}</td>
-  </tr>`);
-  const copyable=d.traders.filter(t=>['active','probation'].includes(t.status)).length;
+  const showRemoved = !!cache.showRemoved;
+  const d = await api('/setup/wallets?include_removed=' + showRemoved);
+  const w = d.wallets;
 
-  $('#view').innerHTML = panel('Traders',
-    table([{t:'Wallet'},{t:'Status'},{t:'Score',n:true},{t:'Copyability',n:true},
-           {t:'Live repl.',n:true},{t:'Conf.',n:true},{t:'Win rate',n:true},
-           {t:'Trades',n:true},{t:'Latency tol.',n:true},{t:'Last seen',n:true}],
-      rows,
-      empty('👤','No traders yet',
-        'Go to <b>Setup</b> and paste the wallet addresses you want to watch.'))
-    + `<div class="note"><b>${copyable}</b> of ${d.traders.length} are copyable
-       (active or probation). The rest are watched so they can earn a score first —
-       <b>copyability</b> is what fraction of a trader's edge survives your latency,
-       and it matters more than raw profit.</div>`,
-    d.traders.length?d.traders.length+' watched':'');
+  const row = t => {
+    const gone = t.status === 'blacklisted';
+    return `<tr>
+      <td class="mono" title="${esc(t.wallet)}">${short(t.wallet, 6)}</td>
+      <td><span class="tag ${t.status}">${t.status}</span></td>
+      <td class="n mono">${n(t.score).toFixed(1)}</td>
+      <td class="n mono">${n(t.copyability).toFixed(1)}</td>
+      <td class="n mono dim">${n(t.confidence).toFixed(0)}</td>
+      <td class="n mono dim">${t.trade_count}</td>
+      <td class="mono dim" style="font-size:11.5px">${esc(t.source || '—')}</td>
+      <td class="n faint" title="${when(t.last_trade_at)}">${ago(t.last_trade_at)}</td>
+      <td class="n">${gone
+        ? `<button class="btn sm" data-restore="${esc(t.wallet)}">Restore</button>`
+        : `<button class="btn sm" data-remove="${esc(t.wallet)}">Remove</button>`}</td>
+    </tr>`;
+  };
+
+  $('#view').innerHTML =
+    panel('Add wallets', `
+      <div class="pad">
+        <textarea id="wtext" spellcheck="false" style="margin-top:0"
+          placeholder="Paste wallet addresses — one per line&#10;&#10;5yb3D1KBy13czATSYGLUbZrYJvRvFQiH9XYkAeG2nDzF&#10;8psNvWTrdNTiVRNzAgsou9kETXNJm2SXZyaKuJraVRtf&#10;&#10;Optional:  address,label,note"></textarea>
+        <div class="row">
+          <button class="btn pri" id="addw">Add to watchlist</button>
+          <button class="btn" id="findw">Find wallets</button>
+          <button class="btn" id="scoreall">Score all</button>
+        </div>
+        <div class="row"><span class="msg" id="wmsg">New wallets start as
+          <b>discovered</b> — watched, never copied, until they earn a score.</span></div>
+      </div>`)
+    + panel('Watchlist',
+        table([{t:'Wallet'},{t:'Status'},{t:'Score',n:true},{t:'Copyability',n:true},
+               {t:'Conf.',n:true},{t:'Trades',n:true},{t:'Source'},
+               {t:'Last seen',n:true},{t:'',n:true}],
+          w.map(row),
+          empty('&#128100;', showRemoved ? 'Nothing removed' : 'No wallets yet',
+                'Paste addresses above, or press <b>Find wallets</b> to let GMGN suggest some.'))
+        + `<div class="note">
+             <b>${d.counts.copyable}</b> of ${d.counts.total} are copyable (active or
+             probation). The rest are watched so they can earn a score first —
+             <b>copyability</b> is what fraction of a trader's edge survives your
+             latency, and it matters more than raw profit.<br><br>
+             Removing a wallet <b>blacklists</b> it rather than deleting it: the trade
+             history stays part of the dataset, and it will not quietly reappear the
+             next time discovery runs.
+           </div>`,
+        `<label style="cursor:pointer;display:inline-flex;gap:6px;align-items:center">
+           <input type="checkbox" id="showrm" ${showRemoved ? 'checked' : ''}> show removed
+         </label>`);
+
+  const msg = (html, kind) => {
+    const e = $('#wmsg'); if(!e) return;
+    e.innerHTML = html; e.className = 'msg ' + (kind || '');
+  };
+
+  $('#addw').onclick = async () => {
+    const text = $('#wtext').value.trim();
+    if(!text){ msg('Paste at least one address first.', 'bad'); return; }
+    $('#addw').disabled = true; msg('Importing…');
+    const r = await post('/setup/wallets', {text, backfill:true});
+    if(!r.ok){ msg(esc(r.error), 'bad'); toast(r.error, 'bad'); $('#addw').disabled = false; return; }
+    toast(`Added ${r.imported} wallet${r.imported === 1 ? '' : 's'}`
+          + (r.already_present ? `, ${r.already_present} already there` : ''));
+    render();
+  };
+
+  $('#findw').onclick = async () => {
+    $('#findw').disabled = true; msg('Searching GMGN…');
+    const r = await post('/setup/discover', {auto_add:true});
+    if(r.enabled === false){
+      msg('GMGN is off — add <b>GMGN_API_KEY</b> to .env to enable discovery.', 'bad');
+      $('#findw').disabled = false;
+      return;
+    }
+    const added = (r.added || []).length;
+    msg(`Screened ${r.discovered || 0}, added ${added}.`, 'ok');
+    toast(added ? `Added ${added} wallet(s) from GMGN`
+                : 'No new wallets passed the screen');
+    if(added) render(); else $('#findw').disabled = false;
+  };
+
+  $('#scoreall').onclick = async () => {
+    $('#scoreall').disabled = true; msg('Queuing…');
+    const r = await post('/setup/backfill', {});
+    msg(r.ok ? `Scoring ${r.queued} wallet(s) — scores appear as they finish.`
+             : esc(r.error), r.ok ? 'ok' : 'bad');
+    toast(r.ok ? `Scoring ${r.queued} wallet(s)` : r.error, r.ok ? '' : 'bad');
+    if(!r.ok) $('#scoreall').disabled = false;
+  };
+
+  $('#showrm').onchange = e => { cache.showRemoved = e.target.checked; render(); };
+
+  /* Delegated: the table is re-rendered on every poll, so per-row listeners would
+     accumulate with it. */
+  $('#view').onclick = async e => {
+    const rm = e.target.closest('[data-remove]');
+    const rs = e.target.closest('[data-restore]');
+    if(rm){
+      const wallet = rm.dataset.remove;
+      if(!confirm('Stop watching ' + short(wallet, 6) + '?\n\n'
+        + 'It will no longer be monitored or copied. Its history is kept and you can '
+        + 'restore it later.')) return;
+      rm.disabled = true;
+      const r = await post('/setup/wallets/' + encodeURIComponent(wallet) + '/remove', {});
+      toast(r.ok ? 'Wallet removed' : (r.error || 'Failed'), r.ok ? '' : 'bad');
+      render();
+    } else if(rs){
+      rs.disabled = true;
+      const r = await post('/setup/wallets/' + encodeURIComponent(rs.dataset.restore) + '/restore', {});
+      toast(r.ok ? 'Restored as a candidate' : (r.error || 'Failed'), r.ok ? '' : 'bad');
+      render();
+    }
+  };
 }
 
 async function viewTrades(){
@@ -811,7 +824,7 @@ async function viewResearch(){
       + `<div class="note">${esc(g.note)}</div>`,'linked wallets'):''}`;
 }
 
-const VIEWS={setup:viewSetup,overview:viewOverview,traders:viewTraders,
+const VIEWS={overview:viewOverview,traders:viewTraders,
              trades:viewTrades,positions:viewPositions,harvest:viewHarvest,
              research:viewResearch};
 
@@ -922,14 +935,8 @@ async function signOut(){
 }
 
 async function boot(){
-  try{
-    const s=await api('/setup');
-    if(!s.ready){
-      tab='setup';
-      $$('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab==='setup'));
-    }
-  }catch{}
-  heartbeat(); render();
+  heartbeat();
+  render();
 }
 
 (async()=>{
@@ -937,7 +944,7 @@ async function boot(){
   if(ok){ unlockUI(); await boot(); } else { lock(''); }
   const live=()=>!document.body.classList.contains('locked');
   setInterval(()=>{ if(live()) heartbeat(); },5000);
-  setInterval(()=>{ if(live() && tab!=='setup') render(); },20000);
+  setInterval(()=>{ if(live()) render(); },20000);
 })();
 </script>
 </body>
