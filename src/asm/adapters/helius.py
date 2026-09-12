@@ -20,12 +20,18 @@ _ids = itertools.count(1)
 
 # Credits per call, from Helius billing docs. Anything unlisted is a standard RPC call.
 CREDIT_COST = {
-    "walletHistory": 100,      # Enhanced Transactions API
+    "walletHistory": 100,       # Enhanced Transactions API
     "parsedTransactions": 100,  # Enhanced Transactions API
     "getProgramAccounts": 10,
     "sendFast": 0,              # Sender is free
-    "wsNotification": 0,        # streaming is metered by volume, not per message
 }
+
+# WebSocket streaming is NOT free. Helius meters it by volume at 2 credits per 0.1 MB,
+# and it is a real share of the bill: on a day measuring 13,873 credits it was 2,030
+# of them (15%). Billing it as zero made the meter quietly optimistic, which is the
+# worst failure mode for a budget gauge.
+WS_CREDITS_PER_MB = 20.0
+_ws_bytes = 0.0
 
 # The free tier caps Enhanced APIs at 2 req/s - far below the 10 rps for standard RPC.
 # They need their own lane or the expensive calls trigger 429s and get retried.
@@ -50,7 +56,7 @@ class HeliusClient(HttpAdapter):
         self._last_enhanced = 0.0
         self._enhanced_throttle = asyncio.Lock()
 
-    async def _count(self, method: str) -> None:
+    async def _count(self, method: str, credits: int | None = None) -> None:
         """Meter every billed call at its ACTUAL credit cost.
 
         Costs confirmed from Helius billing docs (Sept 2026):
@@ -69,7 +75,7 @@ class HeliusClient(HttpAdapter):
         from asm.state.client import get_redis
 
         try:
-            cost = CREDIT_COST.get(method, 1)
+            cost = credits if credits is not None else CREDIT_COST.get(method, 1)
             r = get_redis()
             day = datetime.now(UTC).strftime("%Y%m%d")
             async with r.pipeline(transaction=False) as p:
@@ -80,6 +86,20 @@ class HeliusClient(HttpAdapter):
                 await p.execute()
         except Exception:
             pass  # metering must never break a trade
+
+    async def count_ws_bytes(self, nbytes: int) -> None:
+        """Meter streamed volume, charging only once a whole credit has accrued.
+
+        Counting per message would round every notification up to a credit and
+        overstate by orders of magnitude; carrying the remainder keeps the running
+        total honest.
+        """
+        global _ws_bytes
+        _ws_bytes += nbytes
+        credits = int(_ws_bytes / 1_048_576 * WS_CREDITS_PER_MB)
+        if credits >= 1:
+            _ws_bytes -= credits / WS_CREDITS_PER_MB * 1_048_576
+            await self._count("wsStream", credits=credits)
 
     async def _pace(self) -> None:
         async with self._throttle:
@@ -329,7 +349,7 @@ class WalletSubscription:
             }).decode())
 
     async def _handle(self, raw: str | bytes) -> None:
-        await helius()._count("wsNotification")
+        await helius().count_ws_bytes(len(raw))
         msg = orjson.loads(raw)
         if msg.get("method") != "logsNotification":
             return
