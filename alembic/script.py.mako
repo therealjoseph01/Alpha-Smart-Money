@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from alembic import op
 import sqlalchemy as sa
+
+# Custom portable column types (exact Decimal on SQLite, native types on PostgreSQL).
+import asm.db.types
 ${imports if imports else ""}
 
 revision = ${repr(up_revision)}

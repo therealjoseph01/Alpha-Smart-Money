@@ -120,7 +120,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = False
 
-    database_url: str = "postgresql+asyncpg://asm:asm@localhost:5432/asm"
+    # SQLite by default: one file, no server, and deploying is "copy the directory".
+    # PostgreSQL is still supported - set DATABASE_URL to a postgresql+asyncpg:// URL
+    # when write volume outgrows a single writer.
+    database_url: str = "sqlite+aiosqlite:///./data/asm.db"
     redis_url: str = "redis://localhost:6379/0"
 
     # Helius (PRD 10)

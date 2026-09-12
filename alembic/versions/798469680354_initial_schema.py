@@ -1,16 +1,19 @@
 """initial schema
 
-Revision ID: 99f60d63a039
+Revision ID: 798469680354
 Revises: 
-Create Date: 2026-09-11 22:23:21.274607+00:00
+Create Date: 2026-09-12 02:25:04.261989+00:00
 """
 from __future__ import annotations
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
-revision = '99f60d63a039'
+# Custom portable column types (exact Decimal on SQLite, native types on PostgreSQL).
+import asm.db.types
+
+
+revision = '798469680354'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -23,10 +26,10 @@ def upgrade() -> None:
     sa.Column('category', sa.String(length=32), nullable=False),
     sa.Column('title', sa.String(length=256), nullable=False),
     sa.Column('body', sa.Text(), nullable=False),
-    sa.Column('detail', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('detail', asm.db.types.JSONDict(), nullable=False),
     sa.Column('acknowledged', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_alerts'))
     )
     op.create_index(op.f('ix_alerts_category'), 'alerts', ['category'], unique=False)
@@ -36,11 +39,11 @@ def upgrade() -> None:
     sa.Column('actor', sa.String(length=64), nullable=False),
     sa.Column('action', sa.String(length=64), nullable=False),
     sa.Column('target', sa.String(length=128), nullable=True),
-    sa.Column('before', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('after', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('before', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('after', asm.db.types.JSONDict(), nullable=False),
     sa.Column('ip', sa.String(length=64), nullable=True),
     sa.Column('occurred_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_audit_logs'))
     )
     op.create_index(op.f('ix_audit_logs_action'), 'audit_logs', ['action'], unique=False)
@@ -49,21 +52,21 @@ def upgrade() -> None:
     op.create_table('backtests',
     sa.Column('name', sa.String(length=128), nullable=False),
     sa.Column('status', sa.String(length=16), nullable=False),
-    sa.Column('params', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('results', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('params', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('results', asm.db.types.JSONDict(), nullable=False),
     sa.Column('started_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('finished_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('error', sa.Text(), nullable=True),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_backtests'))
     )
     op.create_index(op.f('ix_backtests_status'), 'backtests', ['status'], unique=False)
     op.create_table('orders',
     sa.Column('idempotency_key', sa.String(length=80), nullable=False),
-    sa.Column('decision_id', sa.UUID(), nullable=True),
-    sa.Column('position_id', sa.UUID(), nullable=True),
+    sa.Column('decision_id', asm.db.types.GUID(), nullable=True),
+    sa.Column('position_id', asm.db.types.GUID(), nullable=True),
     sa.Column('mode', sa.String(length=16), nullable=False),
     sa.Column('status', sa.String(length=16), nullable=False),
     sa.Column('action', sa.String(length=16), nullable=False),
@@ -71,14 +74,14 @@ def upgrade() -> None:
     sa.Column('token_mint', sa.String(length=64), nullable=False),
     sa.Column('input_mint', sa.String(length=64), nullable=False),
     sa.Column('output_mint', sa.String(length=64), nullable=False),
-    sa.Column('in_amount_raw', sa.Numeric(precision=78, scale=0), nullable=False),
-    sa.Column('size_usd', sa.Numeric(precision=38, scale=12), nullable=False),
+    sa.Column('in_amount_raw', asm.db.types.RawAmount(), nullable=False),
+    sa.Column('size_usd', asm.db.types.Money(), nullable=False),
     sa.Column('slippage_bps', sa.Integer(), nullable=False),
     sa.Column('exit_reason', sa.String(length=32), nullable=True),
     sa.Column('reservation_id', sa.String(length=64), nullable=True),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_orders'))
     )
     op.create_index(op.f('ix_orders_decision_id'), 'orders', ['decision_id'], unique=False)
@@ -90,19 +93,19 @@ def upgrade() -> None:
     op.create_index(op.f('ix_orders_trader_wallet'), 'orders', ['trader_wallet'], unique=False)
     op.create_table('portfolio_snapshots',
     sa.Column('mode', sa.String(length=16), nullable=False),
-    sa.Column('active_capital_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('cash_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('deployed_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('unrealized_pnl_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('realized_pnl_today_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('total_equity_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('high_water_mark_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('drawdown_pct', sa.Numeric(precision=12, scale=6), nullable=False),
-    sa.Column('harvested_total_usd', sa.Numeric(precision=38, scale=12), nullable=False),
+    sa.Column('active_capital_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('cash_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('deployed_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('unrealized_pnl_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('realized_pnl_today_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('total_equity_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('high_water_mark_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('drawdown_pct', asm.db.types.Money(), nullable=False),
+    sa.Column('harvested_total_usd', asm.db.types.Money(), nullable=False),
     sa.Column('open_positions', sa.Integer(), nullable=False),
-    sa.Column('sol_balance', sa.Numeric(precision=38, scale=9), nullable=False),
+    sa.Column('sol_balance', asm.db.types.Money(), nullable=False),
     sa.Column('captured_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_portfolio_snapshots'))
     )
     op.create_index(op.f('ix_portfolio_snapshots_captured_at'), 'portfolio_snapshots', ['captured_at'], unique=False)
@@ -115,21 +118,21 @@ def upgrade() -> None:
     sa.Column('trader_wallet', sa.String(length=64), nullable=False),
     sa.Column('mode', sa.String(length=16), nullable=False),
     sa.Column('status', sa.String(length=16), nullable=False),
-    sa.Column('amount_raw', sa.Numeric(precision=78, scale=0), nullable=False),
-    sa.Column('cost_basis_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('realized_pnl_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('fees_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('entry_price', sa.Numeric(precision=38, scale=18), nullable=False),
-    sa.Column('current_price', sa.Numeric(precision=38, scale=18), nullable=False),
-    sa.Column('peak_price', sa.Numeric(precision=38, scale=18), nullable=False),
+    sa.Column('amount_raw', asm.db.types.RawAmount(), nullable=False),
+    sa.Column('cost_basis_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('realized_pnl_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('fees_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('entry_price', asm.db.types.Money(), nullable=False),
+    sa.Column('current_price', asm.db.types.Money(), nullable=False),
+    sa.Column('peak_price', asm.db.types.Money(), nullable=False),
     sa.Column('trailing_armed', sa.Boolean(), nullable=False),
-    sa.Column('tp_levels_hit', postgresql.ARRAY(sa.Integer()), nullable=False),
-    sa.Column('source_trade_id', sa.UUID(), nullable=True),
+    sa.Column('tp_levels_hit', asm.db.types.IntList(), nullable=False),
+    sa.Column('source_trade_id', asm.db.types.GUID(), nullable=True),
     sa.Column('opened_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('closed_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_positions'))
     )
     op.create_index(op.f('ix_positions_mode'), 'positions', ['mode'], unique=False)
@@ -139,19 +142,19 @@ def upgrade() -> None:
     op.create_index(op.f('ix_positions_token_mint'), 'positions', ['token_mint'], unique=False)
     op.create_index(op.f('ix_positions_trader_wallet'), 'positions', ['trader_wallet'], unique=False)
     op.create_table('profit_harvest_events',
-    sa.Column('rule_id', sa.UUID(), nullable=True),
+    sa.Column('rule_id', asm.db.types.GUID(), nullable=True),
     sa.Column('mode', sa.String(length=16), nullable=False),
-    sa.Column('equity_before_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('equity_after_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('profit_since_hwm_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('harvested_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('retained_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('new_high_water_mark_usd', sa.Numeric(precision=38, scale=12), nullable=False),
+    sa.Column('equity_before_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('equity_after_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('profit_since_hwm_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('harvested_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('retained_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('new_high_water_mark_usd', asm.db.types.Money(), nullable=False),
     sa.Column('destination', sa.String(length=64), nullable=False),
     sa.Column('signature', sa.String(length=128), nullable=True),
-    sa.Column('detail', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('detail', asm.db.types.JSONDict(), nullable=False),
     sa.Column('occurred_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_profit_harvest_events'))
     )
     op.create_index(op.f('ix_profit_harvest_events_mode'), 'profit_harvest_events', ['mode'], unique=False)
@@ -159,14 +162,14 @@ def upgrade() -> None:
     op.create_table('profit_harvest_rules',
     sa.Column('name', sa.String(length=64), nullable=False),
     sa.Column('enabled', sa.Boolean(), nullable=False),
-    sa.Column('threshold_pct', sa.Numeric(precision=12, scale=6), nullable=False),
-    sa.Column('take_pct', sa.Numeric(precision=12, scale=6), nullable=False),
-    sa.Column('min_active_capital_usd', sa.Numeric(precision=38, scale=12), nullable=False),
+    sa.Column('threshold_pct', asm.db.types.Money(), nullable=False),
+    sa.Column('take_pct', asm.db.types.Money(), nullable=False),
+    sa.Column('min_active_capital_usd', asm.db.types.Money(), nullable=False),
     sa.Column('destination', sa.String(length=64), nullable=False),
-    sa.Column('config', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('config', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_profit_harvest_rules')),
     sa.UniqueConstraint('name', name=op.f('uq_profit_harvest_rules_name'))
     )
@@ -174,9 +177,9 @@ def upgrade() -> None:
     sa.Column('kind', sa.String(length=48), nullable=False),
     sa.Column('severity', sa.String(length=16), nullable=False),
     sa.Column('message', sa.Text(), nullable=False),
-    sa.Column('detail', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('detail', asm.db.types.JSONDict(), nullable=False),
     sa.Column('occurred_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_risk_events'))
     )
     op.create_index(op.f('ix_risk_events_kind'), 'risk_events', ['kind'], unique=False)
@@ -189,16 +192,16 @@ def upgrade() -> None:
     sa.Column('action', sa.String(length=16), nullable=False),
     sa.Column('token_mint', sa.String(length=64), nullable=False),
     sa.Column('quote_mint', sa.String(length=64), nullable=False),
-    sa.Column('token_amount_raw', sa.Numeric(precision=78, scale=0), nullable=False),
-    sa.Column('quote_amount_raw', sa.Numeric(precision=78, scale=0), nullable=False),
-    sa.Column('source_price', sa.Numeric(precision=38, scale=18), nullable=False),
-    sa.Column('source_value_usd', sa.Numeric(precision=38, scale=12), nullable=False),
+    sa.Column('token_amount_raw', asm.db.types.RawAmount(), nullable=False),
+    sa.Column('quote_amount_raw', asm.db.types.RawAmount(), nullable=False),
+    sa.Column('source_price', asm.db.types.Money(), nullable=False),
+    sa.Column('source_value_usd', asm.db.types.Money(), nullable=False),
     sa.Column('dedupe_key', sa.String(length=64), nullable=False),
     sa.Column('source_confirmed_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('detected_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('observation_latency_ms', sa.Integer(), nullable=True),
-    sa.Column('raw', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('raw', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_source_trades'))
     )
     op.create_index(op.f('ix_source_trades_dedupe_key'), 'source_trades', ['dedupe_key'], unique=True)
@@ -210,11 +213,11 @@ def upgrade() -> None:
     sa.Column('name', sa.String(length=64), nullable=False),
     sa.Column('version', sa.String(length=32), nullable=False),
     sa.Column('active', sa.Boolean(), nullable=False),
-    sa.Column('config', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('config', asm.db.types.JSONDict(), nullable=False),
     sa.Column('checksum', sa.String(length=64), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_strategy_configs')),
     sa.UniqueConstraint('name', 'version', name='uq_strategy_version')
     )
@@ -223,9 +226,9 @@ def upgrade() -> None:
     op.create_table('system_events',
     sa.Column('event_type', sa.String(length=48), nullable=False),
     sa.Column('aggregate_id', sa.String(length=64), nullable=True),
-    sa.Column('payload', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('payload', asm.db.types.JSONDict(), nullable=False),
     sa.Column('occurred_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_system_events'))
     )
     op.create_index(op.f('ix_system_events_aggregate_id'), 'system_events', ['aggregate_id'], unique=False)
@@ -237,25 +240,25 @@ def upgrade() -> None:
     sa.Column('mint_authority_active', sa.Boolean(), nullable=True),
     sa.Column('freeze_authority_active', sa.Boolean(), nullable=True),
     sa.Column('lp_burned', sa.Boolean(), nullable=True),
-    sa.Column('top10_holder_pct', sa.Numeric(precision=12, scale=6), nullable=True),
+    sa.Column('top10_holder_pct', asm.db.types.Money(), nullable=True),
     sa.Column('is_honeypot', sa.Boolean(), nullable=True),
-    sa.Column('reasons', postgresql.ARRAY(sa.Text()), nullable=False),
-    sa.Column('detail', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('reasons', asm.db.types.StringList(), nullable=False),
+    sa.Column('detail', asm.db.types.JSONDict(), nullable=False),
     sa.Column('evaluated_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_token_risk_scores'))
     )
     op.create_index(op.f('ix_token_risk_scores_evaluated_at'), 'token_risk_scores', ['evaluated_at'], unique=False)
     op.create_index(op.f('ix_token_risk_scores_mint'), 'token_risk_scores', ['mint'], unique=False)
     op.create_table('token_snapshots',
     sa.Column('mint', sa.String(length=64), nullable=False),
-    sa.Column('price_usd', sa.Numeric(precision=38, scale=18), nullable=False),
-    sa.Column('liquidity_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('market_cap_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('volume_24h_usd', sa.Numeric(precision=38, scale=12), nullable=False),
+    sa.Column('price_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('liquidity_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('market_cap_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('volume_24h_usd', asm.db.types.Money(), nullable=False),
     sa.Column('holder_count', sa.Integer(), nullable=True),
     sa.Column('captured_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_token_snapshots'))
     )
     op.create_index(op.f('ix_token_snapshots_captured_at'), 'token_snapshots', ['captured_at'], unique=False)
@@ -268,27 +271,27 @@ def upgrade() -> None:
     sa.Column('decimals', sa.Integer(), nullable=False),
     sa.Column('created_at_chain', sa.DateTime(timezone=True), nullable=True),
     sa.Column('deployer', sa.String(length=64), nullable=True),
-    sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('meta', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_tokens'))
     )
     op.create_index(op.f('ix_tokens_deployer'), 'tokens', ['deployer'], unique=False)
     op.create_index(op.f('ix_tokens_mint'), 'tokens', ['mint'], unique=True)
     op.create_table('trade_decisions',
-    sa.Column('candidate_id', sa.UUID(), nullable=False),
-    sa.Column('source_trade_id', sa.UUID(), nullable=True),
+    sa.Column('candidate_id', asm.db.types.GUID(), nullable=False),
+    sa.Column('source_trade_id', asm.db.types.GUID(), nullable=True),
     sa.Column('trader_wallet', sa.String(length=64), nullable=False),
     sa.Column('token_mint', sa.String(length=64), nullable=False),
     sa.Column('action', sa.String(length=16), nullable=False),
     sa.Column('decision', sa.String(length=16), nullable=False),
-    sa.Column('reason_codes', postgresql.ARRAY(sa.Text()), nullable=False),
-    sa.Column('gates', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('inputs', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('size_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('size_pct', sa.Numeric(precision=12, scale=6), nullable=False),
-    sa.Column('size_multiplier', sa.Numeric(precision=12, scale=6), nullable=False),
+    sa.Column('reason_codes', asm.db.types.StringList(), nullable=False),
+    sa.Column('gates', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('inputs', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('size_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('size_pct', asm.db.types.Money(), nullable=False),
+    sa.Column('size_multiplier', asm.db.types.Money(), nullable=False),
     sa.Column('mode', sa.String(length=16), nullable=False),
     sa.Column('strategy_version', sa.String(length=32), nullable=False),
     sa.Column('observation_latency_ms', sa.Integer(), nullable=True),
@@ -296,7 +299,7 @@ def upgrade() -> None:
     sa.Column('execution_latency_ms', sa.Integer(), nullable=True),
     sa.Column('total_copy_latency_ms', sa.Integer(), nullable=True),
     sa.Column('decided_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_trade_decisions'))
     )
     op.create_index('ix_decisions_mode_time', 'trade_decisions', ['mode', 'decided_at'], unique=False)
@@ -311,11 +314,11 @@ def upgrade() -> None:
     sa.Column('wallet_a', sa.String(length=64), nullable=False),
     sa.Column('wallet_b', sa.String(length=64), nullable=False),
     sa.Column('relation', sa.String(length=32), nullable=False),
-    sa.Column('strength', sa.Numeric(precision=12, scale=6), nullable=False),
-    sa.Column('evidence', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('strength', asm.db.types.Money(), nullable=False),
+    sa.Column('evidence', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_trader_relationships')),
     sa.UniqueConstraint('wallet_a', 'wallet_b', 'relation', name='uq_rel')
     )
@@ -327,25 +330,25 @@ def upgrade() -> None:
     sa.Column('source', sa.String(length=32), nullable=False),
     sa.Column('status', sa.String(length=16), nullable=False),
     sa.Column('label', sa.String(length=128), nullable=True),
-    sa.Column('composite_score', sa.Numeric(precision=6, scale=2), nullable=False),
-    sa.Column('confidence', sa.Numeric(precision=6, scale=2), nullable=False),
-    sa.Column('copyability_score', sa.Numeric(precision=6, scale=2), nullable=False),
-    sa.Column('live_replication_score', sa.Numeric(precision=6, scale=2), nullable=True),
-    sa.Column('risk_budget_pct', sa.Numeric(precision=12, scale=6), nullable=False),
-    sa.Column('size_multiplier', sa.Numeric(precision=12, scale=6), nullable=False),
+    sa.Column('composite_score', asm.db.types.Money(), nullable=False),
+    sa.Column('confidence', asm.db.types.Money(), nullable=False),
+    sa.Column('copyability_score', asm.db.types.Money(), nullable=False),
+    sa.Column('live_replication_score', asm.db.types.Money(), nullable=True),
+    sa.Column('risk_budget_pct', asm.db.types.Money(), nullable=False),
+    sa.Column('size_multiplier', asm.db.types.Money(), nullable=False),
     sa.Column('median_hold_seconds', sa.Integer(), nullable=True),
     sa.Column('latency_tolerance_ms', sa.Integer(), nullable=True),
-    sa.Column('avg_trade_size_usd', sa.Numeric(precision=38, scale=12), nullable=True),
-    sa.Column('win_rate', sa.Numeric(precision=12, scale=6), nullable=True),
+    sa.Column('avg_trade_size_usd', asm.db.types.Money(), nullable=True),
+    sa.Column('win_rate', asm.db.types.Money(), nullable=True),
     sa.Column('trade_count', sa.Integer(), nullable=False),
     sa.Column('first_seen_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('last_trade_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('promoted_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('degraded_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('meta', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_traders')),
     sa.UniqueConstraint('chain', 'wallet_address', name='uq_traders_chain_wallet')
     )
@@ -354,32 +357,32 @@ def upgrade() -> None:
     op.create_index('ix_traders_status_score', 'traders', ['status', 'composite_score'], unique=False)
     op.create_index(op.f('ix_traders_wallet_address'), 'traders', ['wallet_address'], unique=False)
     op.create_table('treasury_transfers',
-    sa.Column('harvest_event_id', sa.UUID(), nullable=True),
+    sa.Column('harvest_event_id', asm.db.types.GUID(), nullable=True),
     sa.Column('direction', sa.String(length=16), nullable=False),
-    sa.Column('amount_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('amount_raw', sa.Numeric(precision=78, scale=0), nullable=False),
+    sa.Column('amount_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('amount_raw', asm.db.types.RawAmount(), nullable=False),
     sa.Column('mint', sa.String(length=64), nullable=False),
     sa.Column('destination', sa.String(length=64), nullable=False),
     sa.Column('signature', sa.String(length=128), nullable=True),
     sa.Column('status', sa.String(length=16), nullable=False),
     sa.Column('occurred_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_treasury_transfers'))
     )
     op.create_index(op.f('ix_treasury_transfers_occurred_at'), 'treasury_transfers', ['occurred_at'], unique=False)
     op.create_table('executions',
-    sa.Column('order_id', sa.UUID(), nullable=False),
+    sa.Column('order_id', asm.db.types.GUID(), nullable=False),
     sa.Column('mode', sa.String(length=16), nullable=False),
     sa.Column('status', sa.String(length=16), nullable=False),
     sa.Column('signature', sa.String(length=128), nullable=True),
-    sa.Column('expected_price', sa.Numeric(precision=38, scale=18), nullable=False),
-    sa.Column('actual_price', sa.Numeric(precision=38, scale=18), nullable=False),
-    sa.Column('source_price', sa.Numeric(precision=38, scale=18), nullable=False),
-    sa.Column('expected_slippage_pct', sa.Numeric(precision=12, scale=6), nullable=False),
-    sa.Column('actual_slippage_pct', sa.Numeric(precision=12, scale=6), nullable=False),
-    sa.Column('in_amount_raw', sa.Numeric(precision=78, scale=0), nullable=False),
-    sa.Column('out_amount_raw', sa.Numeric(precision=78, scale=0), nullable=False),
-    sa.Column('value_usd', sa.Numeric(precision=38, scale=12), nullable=False),
+    sa.Column('expected_price', asm.db.types.Money(), nullable=False),
+    sa.Column('actual_price', asm.db.types.Money(), nullable=False),
+    sa.Column('source_price', asm.db.types.Money(), nullable=False),
+    sa.Column('expected_slippage_pct', asm.db.types.Money(), nullable=False),
+    sa.Column('actual_slippage_pct', asm.db.types.Money(), nullable=False),
+    sa.Column('in_amount_raw', asm.db.types.RawAmount(), nullable=False),
+    sa.Column('out_amount_raw', asm.db.types.RawAmount(), nullable=False),
+    sa.Column('value_usd', asm.db.types.Money(), nullable=False),
     sa.Column('network_fee_lamports', sa.BigInteger(), nullable=False),
     sa.Column('priority_fee_lamports', sa.BigInteger(), nullable=False),
     sa.Column('route', sa.String(length=256), nullable=False),
@@ -391,10 +394,10 @@ def upgrade() -> None:
     sa.Column('signed_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('submitted_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('confirmed_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('raw', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('raw', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.ForeignKeyConstraint(['order_id'], ['orders.id'], name=op.f('fk_executions_order_id_orders'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_executions'))
     )
@@ -403,19 +406,19 @@ def upgrade() -> None:
     op.create_index(op.f('ix_executions_signature'), 'executions', ['signature'], unique=False)
     op.create_index(op.f('ix_executions_status'), 'executions', ['status'], unique=False)
     op.create_table('position_events',
-    sa.Column('position_id', sa.UUID(), nullable=False),
+    sa.Column('position_id', asm.db.types.GUID(), nullable=False),
     sa.Column('seq', sa.Integer(), nullable=False),
     sa.Column('event_type', sa.String(length=16), nullable=False),
-    sa.Column('execution_id', sa.UUID(), nullable=True),
-    sa.Column('amount_raw_delta', sa.Numeric(precision=78, scale=0), nullable=False),
-    sa.Column('usd_delta', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('price', sa.Numeric(precision=38, scale=18), nullable=False),
-    sa.Column('realized_pnl_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('fees_usd', sa.Numeric(precision=38, scale=12), nullable=False),
+    sa.Column('execution_id', asm.db.types.GUID(), nullable=True),
+    sa.Column('amount_raw_delta', asm.db.types.RawAmount(), nullable=False),
+    sa.Column('usd_delta', asm.db.types.Money(), nullable=False),
+    sa.Column('price', asm.db.types.Money(), nullable=False),
+    sa.Column('realized_pnl_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('fees_usd', asm.db.types.Money(), nullable=False),
     sa.Column('exit_reason', sa.String(length=32), nullable=True),
-    sa.Column('detail', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('detail', asm.db.types.JSONDict(), nullable=False),
     sa.Column('occurred_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.ForeignKeyConstraint(['position_id'], ['positions.id'], name=op.f('fk_position_events_position_id_positions'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_position_events')),
     sa.UniqueConstraint('position_id', 'seq', name='uq_position_event_seq')
@@ -424,14 +427,14 @@ def upgrade() -> None:
     op.create_index(op.f('ix_position_events_occurred_at'), 'position_events', ['occurred_at'], unique=False)
     op.create_index(op.f('ix_position_events_position_id'), 'position_events', ['position_id'], unique=False)
     op.create_table('trade_candidates',
-    sa.Column('source_trade_id', sa.UUID(), nullable=False),
+    sa.Column('source_trade_id', asm.db.types.GUID(), nullable=False),
     sa.Column('trader_wallet', sa.String(length=64), nullable=False),
     sa.Column('token_mint', sa.String(length=64), nullable=False),
-    sa.Column('market_snapshot', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('quote_snapshot', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('confirmations', postgresql.ARRAY(sa.Text()), nullable=False),
+    sa.Column('market_snapshot', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('quote_snapshot', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('confirmations', asm.db.types.StringList(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.ForeignKeyConstraint(['source_trade_id'], ['source_trades.id'], name=op.f('fk_trade_candidates_source_trade_id_source_trades'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_trade_candidates'))
     )
@@ -440,16 +443,16 @@ def upgrade() -> None:
     op.create_index(op.f('ix_trade_candidates_token_mint'), 'trade_candidates', ['token_mint'], unique=False)
     op.create_index(op.f('ix_trade_candidates_trader_wallet'), 'trade_candidates', ['trader_wallet'], unique=False)
     op.create_table('trader_daily_metrics',
-    sa.Column('trader_id', sa.UUID(), nullable=False),
+    sa.Column('trader_id', asm.db.types.GUID(), nullable=False),
     sa.Column('day', sa.DateTime(timezone=True), nullable=False),
     sa.Column('trades', sa.Integer(), nullable=False),
     sa.Column('wins', sa.Integer(), nullable=False),
-    sa.Column('source_pnl_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('copied_pnl_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('copyable_pnl_usd', sa.Numeric(precision=38, scale=12), nullable=False),
-    sa.Column('max_drawdown_pct', sa.Numeric(precision=12, scale=6), nullable=False),
-    sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('source_pnl_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('copied_pnl_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('copyable_pnl_usd', asm.db.types.Money(), nullable=False),
+    sa.Column('max_drawdown_pct', asm.db.types.Money(), nullable=False),
+    sa.Column('meta', asm.db.types.JSONDict(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.ForeignKeyConstraint(['trader_id'], ['traders.id'], name=op.f('fk_trader_daily_metrics_trader_id_traders'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_trader_daily_metrics')),
     sa.UniqueConstraint('trader_id', 'day', name='uq_trader_daily')
@@ -457,20 +460,20 @@ def upgrade() -> None:
     op.create_index(op.f('ix_trader_daily_metrics_day'), 'trader_daily_metrics', ['day'], unique=False)
     op.create_index(op.f('ix_trader_daily_metrics_trader_id'), 'trader_daily_metrics', ['trader_id'], unique=False)
     op.create_table('trader_scores',
-    sa.Column('trader_id', sa.UUID(), nullable=False),
-    sa.Column('performance', sa.Numeric(precision=6, scale=2), nullable=False),
-    sa.Column('consistency', sa.Numeric(precision=6, scale=2), nullable=False),
-    sa.Column('longevity', sa.Numeric(precision=6, scale=2), nullable=False),
-    sa.Column('risk_adjusted', sa.Numeric(precision=6, scale=2), nullable=False),
-    sa.Column('copyability', sa.Numeric(precision=6, scale=2), nullable=False),
-    sa.Column('live_replication', sa.Numeric(precision=6, scale=2), nullable=True),
-    sa.Column('composite', sa.Numeric(precision=6, scale=2), nullable=False),
-    sa.Column('confidence', sa.Numeric(precision=6, scale=2), nullable=False),
+    sa.Column('trader_id', asm.db.types.GUID(), nullable=False),
+    sa.Column('performance', asm.db.types.Money(), nullable=False),
+    sa.Column('consistency', asm.db.types.Money(), nullable=False),
+    sa.Column('longevity', asm.db.types.Money(), nullable=False),
+    sa.Column('risk_adjusted', asm.db.types.Money(), nullable=False),
+    sa.Column('copyability', asm.db.types.Money(), nullable=False),
+    sa.Column('live_replication', asm.db.types.Money(), nullable=True),
+    sa.Column('composite', asm.db.types.Money(), nullable=False),
+    sa.Column('confidence', asm.db.types.Money(), nullable=False),
     sa.Column('sample_size', sa.Integer(), nullable=False),
     sa.Column('strategy_version', sa.String(length=32), nullable=False),
-    sa.Column('inputs', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('inputs', asm.db.types.JSONDict(), nullable=False),
     sa.Column('computed_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', asm.db.types.GUID(), nullable=False),
     sa.ForeignKeyConstraint(['trader_id'], ['traders.id'], name=op.f('fk_trader_scores_trader_id_traders'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_trader_scores'))
     )
