@@ -78,12 +78,20 @@ services:
     networks:
       - default
       - dokploy-network
-    # Bound to loopback, deliberately. The dashboard is reachable on the server
-    # itself - which is what makes `ssh -L 8000:localhost:8000` work - but the port
-    # is not open to the internet. Public access goes through Traefik and a domain,
-    # so there is exactly one way in and it has TLS.
-    ports:
-      - "127.0.0.1:8000:8000"
+    # No host port. Traefik reaches this over dokploy-network, so publishing one
+    # buys nothing and costs the whole deploy: the host port is global, and anything
+    # else on the machine already holding 8000 makes every redeploy fail with
+    # "port is already allocated" - including an older service of your own.
+    #
+    # Swarm also ignores the 127.0.0.1 in a host_ip binding and publishes on all
+    # interfaces, so a "private" mapping here would quietly be a public one.
+    #
+    # To reach it privately, tunnel to the container rather than the host:
+    #   ssh -L 8000:$(docker inspect -f \
+    #     '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
+    #     $(docker ps -qf name=api)):8000 root@server
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
       interval: 30s
