@@ -117,11 +117,16 @@ class Settings(BaseSettings):
 
     env: str = "dev"
 
-    # Not in .env any more. This is the first-run default only: every service calls
-    # promotion.load_mode() at startup, and the stored mode wins from then on. The
-    # mode is changed from the dashboard, where the promotion gates can be enforced -
-    # an environment variable could have skipped straight to live on a restart.
-    mode: Mode = Mode.PAPER
+    # Deliberately NOT bound to MODE. This is the first-run default only: every
+    # service calls promotion.load_mode() at startup and the stored mode wins from
+    # then on, so the mode is changed from the dashboard, where the promotion gates
+    # are enforced.
+    #
+    # The odd alias is the point. Bound to MODE, a fresh database plus MODE=live in
+    # the environment would come up live with none of the evidence behind it - the
+    # gates would never be consulted. ASM_INITIAL_MODE exists for tests and for
+    # seeding a brand-new deployment; it still only applies before a mode is stored.
+    mode: Mode = Field(default=Mode.PAPER, validation_alias="ASM_INITIAL_MODE")
     log_level: str = "INFO"
     log_json: bool = False
 
