@@ -16,7 +16,6 @@ else has a default, and the risk and gate settings live in the database where th
 dashboard can change them.
 
 ```
-MODE=paper
 ENV=prod
 LOG_JSON=true
 
@@ -35,6 +34,10 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 `DATABASE_URL` and `REDIS_URL` are set by the compose file and must not be overridden —
 they point at the shared volume and the redis container.
+
+There is no `MODE` here. A fresh database starts in paper, and the mode is changed from
+the dashboard so the promotion gates are enforced — an environment variable could have
+put a restart straight into live without the evidence behind it.
 
 ## 3. Deploy
 
