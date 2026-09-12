@@ -149,3 +149,64 @@ def test_realized_pnl_negative_on_loss():
     proceeds, pnl = realized_pnl(p, 1_000_000, Decimal("60"))
     assert proceeds == Decimal("60")
     assert pnl == Decimal("-40")
+
+
+# ------------------------------------------- Jupiter call rate (PRD 28.7)
+async def test_exit_liquidity_is_cached(redis, monkeypatch):
+    """The exit-liquidity probe runs once a second per position.
+
+    Uncached that is 180 Jupiter requests a minute with three positions open, past the
+    free tier's limit - and being rate limited on the EXIT path is the worst possible
+    place for it. A pool does not drain between one second and the next, so the probe
+    is cached while prices stay live.
+    """
+    from decimal import Decimal
+
+    from asm.domain.models import Quote
+    from asm.services.position_service import PositionService
+
+    calls = {"n": 0}
+
+    class FakeJup:
+        async def quote(self, **kw):
+            calls["n"] += 1
+            return Quote(input_mint="a", output_mint="b", in_amount_raw=1,
+                         out_amount_raw=1, price_impact_pct=Decimal("2"))
+
+    import asm.services.position_service as P
+    monkeypatch.setattr(P, "jupiter", lambda: FakeJup())
+
+    svc = PositionService()
+    svc.redis = redis
+    pos = position(amount_raw=1_000_000)
+
+    for _ in range(10):
+        await svc._exit_liquidity(pos)
+
+    assert calls["n"] == 1, f"made {calls['n']} quotes for 10 ticks; should cache"
+
+
+async def test_no_route_out_is_not_cached(redis, monkeypatch):
+    """A missing route is the worst case, so it must be re-checked rather than
+    remembered - otherwise one transient failure strands a position for 30 seconds."""
+    from decimal import Decimal
+
+    from asm.services.position_service import PositionService
+
+    calls = {"n": 0}
+
+    class NoRoute:
+        async def quote(self, **kw):
+            calls["n"] += 1
+            return None
+
+    import asm.services.position_service as P
+    monkeypatch.setattr(P, "jupiter", lambda: NoRoute())
+
+    svc = PositionService()
+    svc.redis = redis
+    pos = position(amount_raw=1_000_000)
+
+    for _ in range(3):
+        assert await svc._exit_liquidity(pos) == Decimal(0)
+    assert calls["n"] == 3, "a missing route must be re-checked every tick"

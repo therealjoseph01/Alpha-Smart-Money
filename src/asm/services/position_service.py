@@ -34,6 +34,9 @@ log = get_logger(__name__)
 
 TICK_SECONDS = 1.0
 HARVEST_EVERY = 60
+# How long an exit-liquidity quote stays good. Prices are re-read every tick; only
+# this depth probe is cached, because a pool does not drain in a second.
+EXIT_LIQUIDITY_TTL = 30
 MARK_CONCURRENCY = 12
 
 
@@ -124,18 +127,40 @@ class PositionService:
                 await self.redis.delete(f"asm:{settings.mode.value}:source_exit:{position.id}")
 
     async def _exit_liquidity(self, position: Position) -> Decimal | None:
-        """PRD 28.7 - quote the reverse direction. Can we actually get out at size?"""
+        """PRD 28.7 - quote the reverse direction. Can we actually get out at size?
+
+        Cached, because this ticks once a second per position and an uncached quote per
+        position per tick is 180 Jupiter requests a minute with three positions open -
+        far past the free tier's limit, which would earn 429s on the exit path. That is
+        the worst place in the system to be rate limited.
+
+        Liquidity deterioration is a slow signal; a pool does not drain between one
+        second and the next. Thirty seconds is ample, and the stop loss and trailing
+        stop still evaluate every tick on fresh prices.
+        """
         if position.amount_raw <= 0:
             return None
+
+        key = f"asm:cache:exitliq:{position.token_mint}:{position.amount_raw}"
+        cached = await self.redis.get(key)
+        if cached is not None:
+            return Decimal(cached) if cached else None
+
         q = await jupiter().quote(
             input_mint=position.token_mint, output_mint=SOL_MINT,
             amount_raw=position.amount_raw,
         )
         if q is None:
-            return ZERO  # no route out at all is the worst case, not an unknown
+            # No route out at all is the worst case, not an unknown - and it is not
+            # cached, so the next tick re-checks rather than acting on a stale verdict.
+            return ZERO
         if q.price_impact_pct <= 0:
+            await self.redis.set(key, "", ex=EXIT_LIQUIDITY_TTL)
             return None
-        return position.market_value_usd / (q.price_impact_pct / Decimal(100))
+
+        liquidity = position.market_value_usd / (q.price_impact_pct / Decimal(100))
+        await self.redis.set(key, str(liquidity), ex=EXIT_LIQUIDITY_TTL)
+        return liquidity
 
     async def _persist_marks(self, p: Position) -> None:
         from sqlalchemy import update
