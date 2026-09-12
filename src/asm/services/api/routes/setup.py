@@ -10,7 +10,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, HTTPException
 from sqlalchemy import desc, func, select
 
 from asm.config import settings
@@ -282,6 +282,85 @@ async def run_backfill(_: Auth, db: DB,
     return {"ok": True, "queued": len(wallets), "estimated_credits": estimate,
             "note": f"Scoring {len(wallets)} wallet(s), about {estimate:,} credits. "
                     "Runs on the worker and takes a few minutes."}
+
+
+# Jobs an operator may trigger by hand, with what each costs in Helius credits.
+# Cost is stated up front: a button that quietly spends thousands is how a monthly
+# budget disappears during setup.
+MANUAL_JOBS: dict[str, dict[str, Any]] = {
+    "discover_wallets": {
+        "label": "Find wallets",
+        "detail": "Pull today's smart-money wallets from GMGN, screen them, add the survivors.",
+        "cost": "~30 credits",
+        "schedule": "every 4 hours",
+    },
+    "maintain_roster": {
+        "label": "Re-rank roster",
+        "detail": "Promote the best scored wallets into the copy roster, demote the rest.",
+        "cost": "free",
+        "schedule": "06:45 and 18:45",
+    },
+    "refresh_watchlist": {
+        "label": "Retire quiet wallets",
+        "detail": "Suspend wallets idle for 14+ days and refresh GMGN metadata.",
+        "cost": "free",
+        "schedule": "07:35",
+    },
+    "rebuild_wallet_graph": {
+        "label": "Find linked wallets",
+        "detail": "Detect wallets that trade together and cut their allocation - "
+                  "five wallets run by one person are one bet, not five.",
+        "cost": "free",
+        "schedule": "04:11",
+    },
+    "attribute_performance": {
+        "label": "Update attribution",
+        "detail": "Recompute which traders actually earned their allocation.",
+        "cost": "free",
+        "schedule": "every 30 minutes",
+    },
+    "snapshot_portfolio": {
+        "label": "Snapshot equity",
+        "detail": "Record a point on the equity curve now.",
+        "cost": "free",
+        "schedule": "every 5 minutes",
+    },
+    "detect_decay": {
+        "label": "Check for decay",
+        "detail": "Degrade traders whose recent scores have fallen off their own baseline.",
+        "cost": "free",
+        "schedule": "03:23 and 15:23",
+    },
+    "daily_report": {
+        "label": "Daily report",
+        "detail": "Generate the operator summary now.",
+        "cost": "free",
+        "schedule": "07:00",
+    },
+    "apply_retention": {
+        "label": "Apply retention",
+        "detail": "Age out old telemetry. Decisions, executions and audit logs are kept.",
+        "cost": "free",
+        "schedule": "05:30",
+    },
+}
+
+
+@router.get("/jobs")
+async def list_jobs():
+    """Every scheduled job, what it costs, and when it would run on its own."""
+    return {"jobs": [{"key": k, **v} for k, v in MANUAL_JOBS.items()]}
+
+
+@router.post("/jobs/{job}")
+async def run_job(job: str, _: Auth):
+    """Run a scheduled job now instead of waiting for its next slot."""
+    meta = MANUAL_JOBS.get(job)
+    if meta is None:
+        raise HTTPException(404, f"unknown job: {job}")
+    await _enqueue(job)
+    return {"ok": True, "job": job, "label": meta["label"],
+            "note": f"Queued. {meta['cost']}. Runs on the worker."}
 
 
 @router.post("/backtest")

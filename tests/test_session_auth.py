@@ -158,3 +158,27 @@ async def test_a_successful_login_clears_the_counter(client, token):
 async def test_remaining_attempts_are_reported(client):
     r = await client.post("/auth/login", json={"password": "wrong"})
     assert "attempt" in r.json()["detail"]
+
+
+# ------------------------------------------------------ manual job triggers
+async def test_job_list_is_public_but_running_one_is_not(client, token):
+    """Seeing what the jobs are is harmless. Spending credits is not."""
+    assert (await client.get("/setup/jobs")).status_code == 200
+    assert (await client.post("/setup/jobs/maintain_roster")).status_code == 401
+
+    await client.post("/auth/login", json={"password": token})
+    assert (await client.post("/setup/jobs/maintain_roster")).status_code == 200
+
+
+async def test_unknown_job_is_refused(client, token):
+    await client.post("/auth/login", json={"password": token})
+    assert (await client.post("/setup/jobs/rm-rf")).status_code == 404
+
+
+async def test_every_job_states_its_cost(client):
+    """A button that quietly spends credits is how a budget disappears."""
+    jobs = (await client.get("/setup/jobs")).json()["jobs"]
+    assert jobs
+    for j in jobs:
+        assert j["cost"], f"{j['key']} does not state a cost"
+        assert j["schedule"], f"{j['key']} does not say when it runs on its own"

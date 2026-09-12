@@ -238,6 +238,14 @@ textarea:focus{outline:none;border-color:var(--s1);box-shadow:0 0 0 3px rgba(57,
 #modal .btn.pri.danger:hover:not(:disabled){background:#e04a4a}
 @media(max-width:480px){#modal .mfoot{flex-direction:column-reverse}
                         #modal .mfoot .btn{width:100%}}
+.job{display:grid;grid-template-columns:1fr auto;gap:12px 16px;align-items:center;
+     padding:12px 16px;border-bottom:1px solid var(--grid)}
+.job:last-of-type{border-bottom:none}
+.job .t{font-weight:600;font-size:13.5px}
+.job .h{font-size:12px;color:var(--ink2);margin-top:2px;max-width:62ch;line-height:1.5}
+.job .m{font:11px/1.5 var(--mono);color:var(--muted);margin-top:3px}
+.job .m .cost{color:#f5c563}
+@media(max-width:640px){.job{grid-template-columns:1fr}}
 .savebar{position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--line);
          padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 @media(max-width:640px){.cfg{grid-template-columns:1fr}}
@@ -1016,6 +1024,32 @@ async function viewSettings(){
       mark();
     }
   };
+
+  /* Scheduled jobs, runnable by hand. Each states its credit cost, because a button
+     that quietly spends thousands is how a monthly budget disappears during setup. */
+  try {
+    const jobs = (await api('/setup/jobs')).jobs;
+    $('#view').insertAdjacentHTML('beforeend', panel('Run a job now',
+      jobs.map(j => `<div class="job">
+        <div>
+          <div class="t">${esc(j.label)}</div>
+          <div class="h">${esc(j.detail)}</div>
+          <div class="m"><span class="cost">${esc(j.cost)}</span>
+            &middot; runs automatically ${esc(j.schedule)}</div>
+        </div>
+        <div><button class="btn" data-job="${esc(j.key)}">Run now</button></div>
+      </div>`).join(''),
+      'normally scheduled'));
+
+    $$('[data-job]').forEach(b => {
+      b.onclick = async () => {
+        b.disabled = true;
+        const r = await post('/setup/jobs/' + encodeURIComponent(b.dataset.job), {});
+        toast(r.ok ? `${r.label}: ${r.note}` : (r.error || 'Failed'), r.ok ? '' : 'bad');
+        setTimeout(() => { b.disabled = false; }, 3000);
+      };
+    });
+  } catch {}
 
   $('#cfgreset').onclick = async () => {
     const yes = await confirmDialog({
