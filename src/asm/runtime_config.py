@@ -57,6 +57,22 @@ FIELDS: tuple[Field, ...] = (
           "Trading capital", "decimal", Decimal("10"), Decimal("10000000"), "$",
           "Every percentage limit is measured against this. Set it to what you "
           "actually intend to risk, even in paper mode."),
+    Field("gmgn_min_realized_usd", "root", "gmgn_min_realized_usd",
+          "Min profit to consider", "decimal", Decimal("0"), Decimal("100000000"), "$",
+          "A wallet must have realised at least this much in 30 days to be worth "
+          "analysing. Raise it to find bigger operators."),
+    Field("gmgn_min_balance_sol", "root", "gmgn_min_balance_sol",
+          "Min account size", "decimal", Decimal("0"), Decimal("100000"), "SOL",
+          "Skip accounts too small to be running a real strategy. 0 = no floor."),
+    Field("gmgn_max_balance_sol", "root", "gmgn_max_balance_sol",
+          "Max account size", "decimal", Decimal("0"), Decimal("1000000"), "SOL",
+          "Skip whales. A wallet whose own buy moves the price is the hardest kind to "
+          "copy - you arrive later and buy the move they made. 0 = no ceiling."),
+    Field("gmgn_max_trades_per_day", "root", "gmgn_max_trades_per_day",
+          "Max trades per day", "int", Decimal(1), Decimal(100000), "",
+          "The most important screen. Above this a wallet's edge is speed, which a "
+          "follower cannot copy - and watching it costs far more.", danger=True),
+
     Field("target_roster_size", "root", "target_roster_size",
           "Wallets to copy", "int", Decimal(1), Decimal(100), "",
           "How many traders are copied at once. The best N by your own score."),

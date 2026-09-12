@@ -102,6 +102,32 @@ async def discover_wallets(ctx: dict, limit: int | None = None,
         (passed if ok else rejected).append(
             {"wallet": wallet, "reason": reason, "profits": row})
 
+    # Optional account-size window. One getBalance per survivor - cheap, and only for
+    # wallets that already cleared the free screen.
+    if passed and (settings.gmgn_min_balance_sol > 0 or settings.gmgn_max_balance_sol > 0):
+        from asm.adapters.helius import helius
+
+        h = helius()
+        sized = []
+        for entry in passed:
+            try:
+                bal = await h.get_balance_sol(entry["wallet"])
+            except Exception:
+                sized.append(entry)          # cannot check: do not reject on our failure
+                continue
+            lo, hi = settings.gmgn_min_balance_sol, settings.gmgn_max_balance_sol
+            if lo > 0 and bal < lo:
+                rejected.append({"wallet": entry["wallet"],
+                                 "reason": f"{bal:.1f} SOL below the {lo} SOL floor"})
+            elif hi > 0 and bal > hi:
+                rejected.append({"wallet": entry["wallet"],
+                                 "reason": f"{bal:.1f} SOL above the {hi} SOL ceiling - "
+                                           "large enough that its own trades move price"})
+            else:
+                entry["balance_sol"] = str(bal)
+                sized.append(entry)
+        passed = sized
+
     passed = passed[:settings.target_roster_size * 2]
 
     # On-chain verification, only for candidates that survived the free screen - one

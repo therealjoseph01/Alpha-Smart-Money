@@ -181,6 +181,13 @@ class Settings(BaseSettings):
     # A human swing trader makes 5-50 trades a day and holds for hours. That edge
     # survives a 3-second delay almost entirely.
     gmgn_max_trades_per_day: int = 100
+
+    # Account-size window. A floor removes accounts too small to be running a real
+    # strategy. A ceiling exists because size cuts both ways: a wallet whose own buy
+    # moves the price 10% is the hardest thing in the world to copy - you arrive three
+    # seconds later and buy the top they just made. 0 disables either side.
+    gmgn_min_balance_sol: Decimal = Decimal("0")
+    gmgn_max_balance_sol: Decimal = Decimal("0")
     # Tags GMGN applies that disqualify a wallet outright.
     gmgn_excluded_tags: tuple[str, ...] = ("wash_trader",)
     seed_file: str = "seeds/wallets.txt"
