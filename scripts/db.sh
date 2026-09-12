@@ -30,19 +30,22 @@ snapshot() { sqlite3 "$1" ".backup '$2'" || die "could not snapshot $1"; }
 
 cmd="${1:-}"; host="${2:-}"; dir="${3:-$DEFAULT_DIR}"
 
-# Identify OUR containers by a property no other stack on the server shares: a mount
-# at /app/data. Matching on the name alone is not safe enough - a server can host
-# several projects, and "anything ending in -api-1" would happily stop someone
-# else's. A name filter is accepted too, and narrows further.
+# Identify OUR containers by the name of the volume they mount, not by their own
+# name and not by the mount point alone.
+#
+# Both weaker tests have already failed in practice: "anything ending in -api-1"
+# matched another project on the same host, and /app/data is a path any Python image
+# might use. The volume is named asm-data by this compose file and by nothing else,
+# so `asm-data mounted at /app/data` is the signature that actually distinguishes us.
 #
 # Returns: <name> for every container of this application.
 remote_ours() {
   ssh "$host" "
     for n in \$(docker ps -a --filter name='${stack}' --format '{{.Names}}'); do
-      docker inspect -f '{{range .Mounts}}{{.Destination}} {{end}}' \"\$n\" 2>/dev/null \
-        | grep -q '/app/data' && echo \"\$n\"
+      docker inspect -f '{{range .Mounts}}{{.Name}}@{{.Destination}} {{end}}' \"\$n\" 2>/dev/null \
+        | grep -Eq '(^| )[^ ]*asm-data@/app/data( |\$)' && echo \"\$n\"
     done
-  "
+  " | tr -d '\r'
 }
 
 remote_api() { remote_ours | grep -- '-api-1$' | head -1; }
@@ -118,8 +121,11 @@ case "$cmd" in
     snapshot "$DB" "$tmp"
     ok "snapshot taken ($(du -h "$tmp" | cut -f1))"
 
-    # shellcheck disable=SC2086
-    ssh "$host" "docker stop $svcs >/dev/null" || die "could not stop the services"
+    # One line, space separated. A newline here makes the remote shell treat every
+    # name after the first as a command of its own - which is exactly what happened.
+    svcs_line=$(echo "$svcs" | tr '\n' ' ')
+
+    ssh "$host" "docker stop $svcs_line >/dev/null" || die "could not stop the services"
     ok "services stopped"
 
     ssh "$host" "docker cp '$api:/app/data/asm.db' /tmp/asm.db.replaced 2>/dev/null \
@@ -141,8 +147,7 @@ case "$cmd" in
     rm -f "$tmp"
     ok "pushed into the volume, stale -wal and -shm removed"
 
-    # shellcheck disable=SC2086
-    ssh "$host" "docker start $svcs >/dev/null" || die "could not restart the services"
+    ssh "$host" "docker start $svcs_line >/dev/null" || die "could not restart the services"
     ok "services restarted"
     ;;
 
