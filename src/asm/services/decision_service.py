@@ -17,6 +17,7 @@ import contextlib
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from asm import runtime_config
 from asm.adapters.helius import WalletSubscription, helius
 from asm.config import settings
 from asm.db import repo
@@ -98,6 +99,7 @@ class DecisionService:
 
     # ------------------------------------------------------------------- run
     async def run(self) -> None:
+        await runtime_config.refresh(force=True)
         await self.ledger.bootstrap(settings.starting_capital_usd)
         await self.refresh_wallets()
 
@@ -126,6 +128,7 @@ class DecisionService:
         while not self._stop.is_set():
             await asyncio.sleep(30)
             with contextlib.suppress(Exception):
+                await runtime_config.refresh()
                 await self.refresh_wallets()
 
     async def _worker(self, idx: int) -> None:

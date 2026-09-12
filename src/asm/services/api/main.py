@@ -7,11 +7,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from asm import runtime_config
 from asm.config import settings
 from asm.db.session import close_engine
 from asm.logging import get_logger, setup_logging
 from asm.services.api.routes import (
     backtests,
+    config,
     portfolio,
     research,
     setup,
@@ -28,6 +30,7 @@ log = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    await runtime_config.refresh(force=True)
     await RiskLedger().bootstrap(settings.starting_capital_usd)
     log.info("api_started", mode=settings.mode.value)
     yield
@@ -53,7 +56,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (traders, trades, portfolio, system, backtests, research, setup):
+for module in (traders, trades, portfolio, system, backtests, research, setup,
+               config):
     app.include_router(module.router)
 
 

@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 from decimal import Decimal
 
+from asm import runtime_config
 from asm.adapters.jupiter import jupiter
 from asm.config import settings
 from asm.db import repo
@@ -48,6 +49,7 @@ class PositionService:
         self._ticks = 0
 
     async def run(self) -> None:
+        await runtime_config.refresh(force=True)
         await self.ledger.bootstrap(settings.starting_capital_usd)
         log.info("position_service_started", mode=settings.mode.value)
         while not self._stop.is_set():
@@ -64,6 +66,7 @@ class PositionService:
 
     async def tick(self) -> None:
         self._ticks += 1
+        await runtime_config.refresh()
         async with session_scope() as s:
             rows = await repo.open_positions(s)
             positions = [repo.position_to_domain(r) for r in rows]

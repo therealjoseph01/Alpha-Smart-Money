@@ -47,6 +47,10 @@ def redis_settings() -> RedisSettings:
 
 async def startup(ctx: dict) -> None:
     setup_logging()
+
+    from asm import runtime_config
+
+    await runtime_config.refresh(force=True)
     log.info("arq_worker_started", mode=settings.mode.value)
 
 
