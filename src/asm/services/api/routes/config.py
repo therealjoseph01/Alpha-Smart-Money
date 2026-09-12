@@ -27,7 +27,10 @@ async def get_config():
     }
 
 
-@router.put("")
+# PUT is the correct verb and POST is what the dashboard sends. Accepting both is
+# the smaller mistake: registering only PUT meant every Save in the Settings tab
+# returned 405, so no setting was ever changeable from the UI at all.
+@router.api_route("", methods=["PUT", "POST"])
 async def update_config(_: Auth, changes: dict[str, Any] = Body(...)):
     """Validate and save. Out-of-range values are refused, not clamped.
 
