@@ -9,20 +9,14 @@ install: ## create venv and install deps
 	uv sync --extra dev
 	@test -f .env || cp .env.example .env
 
-up: ## ensure local postgres + redis are running and the db exists
-	@pg_isready -q || brew services start postgresql@14
+up: ## ensure redis is running and the database exists
 	@redis-cli ping >/dev/null 2>&1 || brew services start redis
-	@until pg_isready -q; do sleep 1; done
 	@until redis-cli ping >/dev/null 2>&1; do sleep 1; done
-	@psql -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='asm'" | grep -q 1 || \
-		psql -d postgres -c "CREATE ROLE asm LOGIN PASSWORD 'asm' SUPERUSER;"
-	@psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='asm'" | grep -q 1 || \
-		psql -d postgres -c "CREATE DATABASE asm OWNER asm;"
-	@echo "postgres + redis ready"
+	@mkdir -p data logs
+	@echo "redis ready · sqlite at data/asm.db"
 
 down: ## stop local services
 	-brew services stop redis
-	-brew services stop postgresql@14
 
 migrate: ## apply database migrations
 	uv run alembic upgrade head

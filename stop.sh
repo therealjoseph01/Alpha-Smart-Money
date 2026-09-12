@@ -41,5 +41,4 @@ fi
 
 if [ "${1:-}" = "--all" ]; then
   brew services stop redis >/dev/null 2>&1 && ok "redis stopped"
-  brew services stop "${PG_FORMULA:-postgresql@14}" >/dev/null 2>&1 && ok "postgres stopped"
 fi

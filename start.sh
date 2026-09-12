@@ -10,7 +10,6 @@ set -uo pipefail
 cd "$(dirname "$0")"
 
 PORT="${PORT:-8000}"
-PG_FORMULA="${PG_FORMULA:-postgresql@14}"
 mkdir -p logs
 : > logs/pids
 
@@ -26,7 +25,7 @@ wait_for() {  # wait_for <seconds> <command...>
 }
 
 # ---------------------------------------------------------------- 1. infra
-bold "1/4  infrastructure"
+bold "1/3  infrastructure"
 
 if redis-cli ping >/dev/null 2>&1; then
   ok "redis already running"
@@ -34,49 +33,32 @@ else
   if command -v brew >/dev/null 2>&1 && brew list redis >/dev/null 2>&1; then
     brew services start redis >/dev/null 2>&1
   else
-    command -v redis-server >/dev/null 2>&1 || die "redis is not installed  →  brew install redis"
+    command -v redis-server >/dev/null 2>&1 || die "redis is not installed  ->  brew install redis"
     redis-server --daemonize yes >/dev/null 2>&1
   fi
   wait_for 20 redis-cli ping || die "redis would not start"
   ok "redis started"
 fi
 
-if pg_isready -q 2>/dev/null; then
-  ok "postgres already running"
-else
-  command -v pg_isready >/dev/null 2>&1 || die "postgres is not installed  →  brew install $PG_FORMULA"
-  brew services start "$PG_FORMULA" >/dev/null 2>&1
-  wait_for 30 pg_isready -q || die "postgres would not start  →  brew services list"
-  ok "postgres started"
-fi
-
 # ------------------------------------------------------------- 2. database
-bold "2/4  database"
-
-if ! psql -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='asm'" 2>/dev/null | grep -q 1; then
-  psql -d postgres -c "CREATE ROLE asm LOGIN PASSWORD 'asm' SUPERUSER;" >/dev/null 2>&1 \
-    && ok "role 'asm' created" || die "could not create the asm role"
-else
-  ok "role 'asm' exists"
-fi
-
-if ! psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='asm'" 2>/dev/null | grep -q 1; then
-  psql -d postgres -c "CREATE DATABASE asm OWNER asm;" >/dev/null 2>&1 \
-    && ok "database 'asm' created" || die "could not create the asm database"
-else
-  ok "database 'asm' exists"
-fi
+bold "2/3  database"
 
 [ -f .env ] || { cp .env.example .env; ok ".env created from .env.example"; }
+mkdir -p data logs
 
 if uv run alembic upgrade head >logs/migrate.log 2>&1; then
   ok "schema up to date"
 else
-  die "migrations failed  →  see logs/migrate.log"
+  die "migrations failed  ->  see logs/migrate.log"
+fi
+
+DB_PATH=$(grep -E '^DATABASE_URL=' .env | sed -E 's|.*sqlite[^/]*///||')
+if [ -n "$DB_PATH" ] && [ -f "$DB_PATH" ]; then
+  ok "sqlite  $DB_PATH  ($(du -h "$DB_PATH" | cut -f1))"
 fi
 
 # ------------------------------------------------------------- 3. preflight
-bold "3/4  preflight"
+bold "3/3  preflight"
 
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   holder=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -Fc 2>/dev/null | grep '^c' | head -1 | cut -c2-)
@@ -111,7 +93,7 @@ else
 fi
 
 # -------------------------------------------------------------- 4. services
-bold "4/4  services"
+bold "services"
 
 PIDS=()
 NAMES=()
