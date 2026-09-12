@@ -13,7 +13,7 @@ import asyncio
 import contextlib
 from decimal import Decimal
 
-from asm import runtime_config
+from asm import promotion, runtime_config
 from asm.adapters.jupiter import jupiter
 from asm.config import settings
 from asm.db import repo
@@ -52,6 +52,7 @@ class PositionService:
         self._ticks = 0
 
     async def run(self) -> None:
+        await promotion.load_mode()
         await runtime_config.refresh(force=True)
         await self.ledger.bootstrap(settings.starting_capital_usd)
         log.info("position_service_started", mode=settings.mode.value)

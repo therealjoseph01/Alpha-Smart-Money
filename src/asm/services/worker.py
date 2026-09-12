@@ -30,6 +30,7 @@ from asm.services.tasks.ops import (
     snapshot_portfolio,
     weekly_review,
 )
+from asm.services.tasks.promote import auto_advance
 from asm.services.tasks.research import (
     gate_effectiveness,
     latency_profile,
@@ -87,6 +88,7 @@ class WorkerSettings:
         refresh_watchlist,
         score_candidates,
         maintain_roster,
+        auto_advance,
     ]
     cron_jobs: ClassVar[list] = [
         # equity curve
@@ -117,6 +119,9 @@ class WorkerSettings:
         cron(refresh_watchlist, hour=7, minute=35),
         # PRD 39 - wallet graph / cluster detection
         cron(rebuild_wallet_graph, hour=4, minute=11),
+        # PRD 72 - advance paper -> shadow once the evidence supports it.
+        # Never reaches live; that is a decision, not a schedule.
+        cron(auto_advance, minute=50),
         # PRD 69 - data retention
         cron(apply_retention, hour=5, minute=30),
         # PRD 68 - weekly strategy review (Mondays)

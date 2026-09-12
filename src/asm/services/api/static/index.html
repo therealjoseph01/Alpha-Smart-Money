@@ -236,6 +236,20 @@ textarea:focus{outline:none;border-color:var(--s1);box-shadow:0 0 0 3px rgba(57,
 #modal .btn.pri.danger:hover:not(:disabled){background:#e04a4a}
 @media(max-width:480px){#modal .mfoot{flex-direction:column-reverse}
                         #modal .mfoot .btn{width:100%}}
+.gate{display:flex;gap:10px;align-items:flex-start;padding:9px 16px;
+      border-bottom:1px solid var(--grid);font-size:13px}
+.gate:last-of-type{border-bottom:none}
+.gate .tick{width:18px;flex:none;font:13px/1.4 var(--mono)}
+.gate.ok .tick{color:#5fd05f} .gate.no .tick{color:var(--muted)}
+.gate .d{color:var(--ink2)}
+.stages{display:flex;gap:6px;align-items:center;padding:14px 16px;flex-wrap:wrap}
+.stage{padding:6px 12px;border-radius:20px;font:600 11px/1 var(--mono);
+       text-transform:uppercase;letter-spacing:.05em;background:var(--panel2);
+       color:var(--muted);border:1px solid var(--line)}
+.stage.now{background:rgba(57,135,229,.16);color:#8cbcf2;border-color:rgba(57,135,229,.4)}
+.stage.done{background:rgba(12,163,12,.12);color:#5fd05f;border-color:rgba(12,163,12,.3)}
+.stage.live{background:rgba(208,59,59,.16);color:#ef8d8d;border-color:rgba(208,59,59,.4)}
+.arrow{color:var(--muted);font-size:12px}
 .job{display:grid;grid-template-columns:1fr auto;gap:12px 16px;align-items:center;
      padding:12px 16px;border-bottom:1px solid var(--grid)}
 .job:last-of-type{border-bottom:none}
@@ -1188,6 +1202,70 @@ async function viewSettings(){
       mark();
     }
   };
+
+  /* Stage progression. paper -> shadow advances on its own once the evidence is in;
+     live never does, because risking money should be a decision. */
+  try {
+    const m = await api('/mode');
+    const order = ['backtest','paper','shadow','live'];
+    const at = order.indexOf(m.current);
+    const pill = (s,i) => `<span class="stage ${
+      i===at ? (s==='live'?'now live':'now') : (i<at ? 'done' : '')}">${s}</span>`;
+
+    $('#view').insertAdjacentHTML('beforeend', panel('Stage',
+      `<div class="stages">${order.map((s,i)=>pill(s,i)).join('<span class="arrow">&rarr;</span>')}</div>`
+      + (m.gates||[]).map(g => `<div class="gate ${g.passed?'ok':'no'}">
+           <span class="tick">${g.passed?'\u2713':'\u2022'}</span>
+           <span class="d">${esc(g.detail)}</span></div>`).join('')
+      + `<div class="savebar">
+           ${m.target && m.target !== 'live'
+             ? `<button class="btn pri" id="advance" ${m.ready?'':'disabled'}>Advance to ${esc(m.target)}</button>`
+             : ''}
+           ${m.target === 'live'
+             ? `<button class="btn pri danger" id="golive" ${m.ready?'':'disabled'}>Go live</button>`
+             : ''}
+           ${at > 1 ? `<button class="btn" id="stepback">Step back</button>` : ''}
+           <span class="msg">${esc(m.note)}</span>
+         </div>`,
+      m.open_positions ? `${m.open_positions} open` : ''));
+
+    const adv = $('#advance');
+    if (adv) adv.onclick = async () => {
+      adv.disabled = true;
+      const r = await post('/mode/advance', {});
+      toast(r.changed ? `Now in ${r.current}` : (r.detail || r.reason || 'Not ready'),
+            r.changed ? '' : 'bad');
+      render();
+    };
+
+    const live = $('#golive');
+    if (live) live.onclick = async () => {
+      const go = await confirmDialog({
+        title: 'Switch to live trading?',
+        body: `Real money will be at risk from the next signal.<ul>
+               <li>Every gate above has passed &mdash; that is necessary, not sufficient</li>
+               <li>Fund the trading wallet with only what you accept losing</li>
+               <li>The signer daemon must be running, or nothing can be signed</li>
+               <li>You can step back to shadow at any time</li></ul>`,
+        ok: 'Go live', danger: true,
+      });
+      if (!go) return;
+      live.disabled = true;
+      const r = await post('/mode/live', {confirm: 'trade real money'});
+      toast(r.changed ? 'LIVE - real money at risk' : (r.detail || 'Refused'),
+            r.changed ? '' : 'bad');
+      render();
+    };
+
+    const back = $('#stepback');
+    if (back) back.onclick = async () => {
+      const to = order[Math.max(0, at - 1)];
+      const r = await post('/mode/set', {mode: to});
+      toast(r.changed ? `Stepped back to ${to}` : (r.detail || 'Failed'),
+            r.changed ? '' : 'bad');
+      render();
+    };
+  } catch {}
 
   /* Scheduled jobs, runnable by hand. Each states its credit cost, because a button
      that quietly spends thousands is how a monthly budget disappears during setup. */
