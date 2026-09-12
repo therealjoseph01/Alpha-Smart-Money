@@ -5,16 +5,27 @@
 # block the writer, and the writer waits rather than failing. If write volume ever
 # outgrows a single writer, point DATABASE_URL at Postgres; the schema is portable.
 
+x-env: &env
+  # Absolute path: a relative one depends on the working directory, which differs
+  # between containers and would silently create a second, empty database.
+  DATABASE_URL: sqlite+aiosqlite:////app/data/asm.db
+  REDIS_URL: redis://redis:6379/0
+  PYTHONPATH: /app/src
+
 x-app: &app
   build: .
   restart: unless-stopped
   env_file: .env
   environment:
-    # Absolute path: a relative one depends on the working directory, which differs
-    # between containers and would silently create a second, empty database.
-    DATABASE_URL: sqlite+aiosqlite:////app/data/asm.db
-    REDIS_URL: redis://redis:6379/0
-    PYTHONPATH: /app/src
+    <<: *env
+    # Blanked deliberately. env_file applies to every service, so a SOLANA_KEYPAIR
+    # set in the environment would otherwise be handed to all five containers -
+    # including the API, which is reachable from the internet behind a password.
+    #
+    # Only `decision` and `positions` sign anything, and they re-enable it below.
+    # An empty value is not the same as an unset one here: get_signer() treats
+    # empty as unset and falls through to the isolated signer daemon.
+    SOLANA_KEYPAIR: ""
   volumes:
     - asm-data:/app/data
     - asm-logs:/app/logs
@@ -82,10 +93,24 @@ services:
 
   decision:
     <<: *app
+    # Signs buys. If SOLANA_KEYPAIR is set in the environment it lands here and signing
+    # happens in this process, with no independent per-transaction ceiling between a
+    # bug and the wallet. The safer arrangement is to leave it unset and run the
+    # asm-signer container, which holds the key and enforces its own limit.
+    environment:
+      <<: *env
+      SOLANA_KEYPAIR: ${SOLANA_KEYPAIR:-}
     command: ["python", "-m", "asm.services.decision_service"]
 
   positions:
     <<: *app
+    # Signs sells and treasury transfers. If SOLANA_KEYPAIR is set in the environment it lands here and signing
+    # happens in this process, with no independent per-transaction ceiling between a
+    # bug and the wallet. The safer arrangement is to leave it unset and run the
+    # asm-signer container, which holds the key and enforces its own limit.
+    environment:
+      <<: *env
+      SOLANA_KEYPAIR: ${SOLANA_KEYPAIR:-}
     command: ["python", "-m", "asm.services.position_service"]
 
 # Created by Dokploy, so it is external here rather than declared. Running this file

@@ -47,7 +47,17 @@ nothing, and pasting it causes real problems rather than clutter:
 | `RPC_FALLBACK_URL` | Already the default public endpoint. |
 | `GMGN_PLAN_WEIGHT` | `5` is the default, correct for the free plan. |
 | `TRADING_WALLET_PUBKEY`, `TREASURY_WALLET_PUBKEY` | Blank until you go live. Add them then. |
-| `SOLANA_KEYPAIR` | Never. Production signs through the isolated signer process. |
+| `SOLANA_KEYPAIR` | Only if you accept signing inside the trading processes — see below. Nothing signs in paper or shadow, so leave it out until live. |
+
+### If you set SOLANA_KEYPAIR here
+
+The compose file blanks it on every service and re-enables it on `decision` and
+`positions` alone — the only two that sign. So the key does not reach `api`, which is
+the one service exposed to the internet, nor `worker` or `migrate`.
+
+What it still costs you: signing happens inside the trading processes, so there is no
+independent per-transaction ceiling between a bug in the trading code and the wallet.
+The `asm-signer` container exists to be that ceiling. Run it before the amounts matter.
 
 ## 3. Deploy
 
