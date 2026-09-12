@@ -30,6 +30,25 @@ TOKEN_PROGRAMS = {
     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
 }
 
+# Launchpads mint tokens to vanity addresses ending in their own suffix - pump.fun
+# ends in "pump", letsbonk in "bonk", and so on. Every address that caused the
+# incident matched one of these.
+#
+# This is a heuristic and the RPC check remains authoritative, but it earns its place
+# for two reasons: it costs nothing and needs no network, so it still catches a token
+# when Helius is unreachable and verification would otherwise fail open. A wallet
+# deliberately vanity-generated to end in "pump" would be a false positive; that is
+# vanishingly rare, and the message says which check fired so it can be overridden.
+LAUNCHPAD_SUFFIXES = ("pump", "bonk", "moon", "fun", "boop", "daos")
+
+
+def looks_like_launchpad_token(address: str) -> str | None:
+    """Return the matched suffix, or None. Case-sensitive: the vanity suffix is."""
+    for suffix in LAUNCHPAD_SUFFIXES:
+        if address.endswith(suffix):
+            return suffix
+    return None
+
 
 @dataclass(frozen=True)
 class Verdict:
@@ -44,8 +63,19 @@ class Verdict:
 
 
 async def verify(address: str) -> Verdict:
-    """Classify an address. Fails OPEN on an RPC error - we do not block an import
-    because Helius happened to be unreachable, we just cannot confirm."""
+    """Classify an address.
+
+    Order matters. The free suffix check runs first so a launchpad token is caught
+    even when the RPC is down - otherwise verification fails open and the exact thing
+    this module exists to stop walks straight through.
+    """
+    suffix = looks_like_launchpad_token(address)
+    if suffix:
+        return Verdict(address, False, "token",
+                       f"ends in '{suffix}' - that is a launchpad token mint, not a "
+                       "wallet. Watching it would stream every trade of that token "
+                       "by anyone on Solana")
+
     try:
         result = await helius().rpc(
             "getAccountInfo", [address, {"encoding": "jsonParsed"}])

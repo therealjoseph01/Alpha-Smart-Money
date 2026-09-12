@@ -88,3 +88,60 @@ def test_firehose_threshold_is_below_any_human_rate():
     from asm.services.decision_service import FIREHOSE_PER_MINUTE
 
     assert 30 <= FIREHOSE_PER_MINUTE <= 600
+
+
+# --------------------------------------------------- free launchpad suffix check
+def test_pump_suffix_is_caught_without_any_network_call():
+    """The specific address from the incident, rejected for free."""
+    from asm.ingest.verify import looks_like_launchpad_token
+
+    assert looks_like_launchpad_token(
+        "Bj1CbypNWSvA3VAX15m5y92RL3ujftj747yNjwqpump") == "pump"
+
+
+def test_ordinary_wallets_are_not_flagged_by_suffix():
+    from asm.ingest.verify import looks_like_launchpad_token
+
+    for addr in ("5yb3D1KBy13czATSYGLUbZrYJvRvFQiH9XYkAeG2nDzF",
+                 "8psNvWTrdNTiVRNzAgsou9kETXNJm2SXZyaKuJraVRtf"):
+        assert looks_like_launchpad_token(addr) is None
+
+
+async def test_suffix_check_still_works_when_the_rpc_is_down(monkeypatch):
+    """The point of the free check.
+
+    Verification fails OPEN on an RPC error, so without this a launchpad token would
+    walk straight through exactly when we are least able to check it.
+    """
+    import asm.ingest.verify as V
+
+    class Broken:
+        async def rpc(self, *a, **kw):
+            raise RuntimeError("rpc down")
+
+    monkeypatch.setattr(V, "helius", lambda: Broken())
+
+    token = await V.verify("Bj1CbypNWSvA3VAX15m5y92RL3ujftj747yNjwqpump")
+    assert not token.ok, "a pump token must be rejected even with no RPC"
+
+    other = await V.verify("5yb3D1KBy13czATSYGLUbZrYJvRvFQiH9XYkAeG2nDzF")
+    assert other.kind == "unchecked", "anything else still fails open"
+
+
+def test_suffix_check_is_a_net_not_a_replacement():
+    """Only one of the five incident addresses had a launchpad suffix.
+
+    Recording that here so nobody later mistakes the cheap check for the real one and
+    removes the RPC verification to save a credit.
+    """
+    from asm.ingest.verify import looks_like_launchpad_token
+
+    incident = [
+        "Bj1CbypNWSvA3VAX15m5y92RL3ujftj747yNjwqpump",
+        "ASoQZA3Dee2HU34Vwx3b5SAtTaczJtZcyx1T413nDALL",
+        "Gt9brNVXP7gdGtUqZLcJAhbZTjLEcKrA53F18fRSEeAp",
+        "8LstZpZuR9Dy7JCZC3YwPEWtbYhuDVFAYV37r6ZAcuHz",
+        "CdixZU5dNFGXZ2jojQjree5EyynrsJ4GjDdXvZEVSLyX",
+    ]
+    caught = [a for a in incident if looks_like_launchpad_token(a)]
+    assert len(caught) == 1

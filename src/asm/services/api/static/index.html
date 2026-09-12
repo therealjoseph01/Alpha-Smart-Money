@@ -696,6 +696,22 @@ async function viewTraders(){
     if(!text){ msg('Paste at least one address first.', 'bad'); return; }
     $('#addw').disabled = true; msg('Importing…');
     const r = await post('/setup/wallets', {text, backfill:true});
+
+    /* Rejections are the useful message here. An address can be perfectly valid base58
+       and still be a token mint, which would stream every trade of that token by
+       anyone - so say which ones were refused and why. */
+    const bad = r.rejected || [];
+    if(bad.length){
+      msg(`<b>${bad.length} not added</b> \u2014 these are not wallets:<br>`
+          + bad.slice(0, 5).map(b =>
+              `<span class="mono">${esc(short(b.wallet, 6))}</span> \u2014 ${esc(b.reason)}`
+            ).join('<br>')
+          + (bad.length > 5 ? `<br>\u2026and ${bad.length - 5} more` : ''), 'bad');
+      toast(`${bad.length} rejected \u2014 not wallets`, 'bad');
+      $('#addw').disabled = false;
+      if(r.imported) setTimeout(render, 2500);
+      return;
+    }
     if(!r.ok){ msg(esc(r.error), 'bad'); toast(r.error, 'bad'); $('#addw').disabled = false; return; }
     toast(`Added ${r.imported} wallet${r.imported === 1 ? '' : 's'}`
           + (r.already_present ? `, ${r.already_present} already there` : ''));
