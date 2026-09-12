@@ -21,6 +21,7 @@ dependencies = [
     "base58>=2.1",
     "websockets>=13",
     "prometheus-client>=0.21",
+    "aiosqlite>=0.22.1",
 ]
 
 [project.optional-dependencies]
