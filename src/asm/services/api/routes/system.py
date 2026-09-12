@@ -1,7 +1,9 @@
 """PRD 55 - emergency controls, and PRD 56 - observability."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, HTTPException
+import asyncio
+
+from fastapi import APIRouter, Body, HTTPException, Request, Response, status
 from sqlalchemy import desc, select
 
 from asm.config import settings
@@ -193,12 +195,46 @@ async def alerts(db: DB, limit: int = 50, unacknowledged_only: bool = False):
     ]}
 
 
-@router.get("/auth/check")
-async def auth_check(_: Auth):
-    """Verify a token without changing anything.
+@router.post("/auth/login")
+async def login(request: Request, response: Response,
+                password: str = Body(..., embed=True)):
+    """Exchange the password for an httpOnly session cookie.
 
-    Lets the dashboard show one password screen on entry instead of prompting before
-    every action. The token is still sent on every mutating request - this only moves
-    where the user is asked for it.
+    The token is never handed to the page, so no script can read it - and the session
+    expires on its own rather than living in localStorage forever.
     """
+    from asm.services.api import session
+    from asm.services.api.deps import token_is_valid
+
+    if not token_is_valid(password.strip()):
+        # Same shape of failure whichever way it is wrong, and slow enough not to be
+        # a comfortable thing to guess against.
+        await asyncio.sleep(0.4)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "incorrect password")
+
+    await session.create(request, response)
+    return {"ok": True, "expires_in": settings.session_ttl_seconds}
+
+
+@router.post("/auth/logout")
+async def logout(request: Request, response: Response):
+    from asm.services.api import session
+
+    await session.destroy(request, response)
     return {"ok": True}
+
+
+@router.post("/auth/revoke-all")
+async def revoke_all(_: Auth):
+    """Kill every session everywhere - use after changing the password."""
+    from asm.services.api import session
+
+    return {"ok": True, "revoked": await session.destroy_all()}
+
+
+@router.get("/auth/check")
+async def auth_check(request: Request, _: Auth):
+    """Verify the caller is authenticated, without changing anything."""
+    from asm.services.api import session
+
+    return {"ok": True, "expires_in": await session.remaining_seconds(request)}

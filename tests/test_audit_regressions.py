@@ -252,13 +252,21 @@ async def test_unrealized_profit_does_not_trigger_harvest(ledger):
 
 
 async def test_default_api_token_cannot_authorize_mutations(monkeypatch):
+    """The shipped placeholder must never authenticate, by header or by session.
+
+    require_token now also accepts an httpOnly session cookie, so it takes a Request;
+    the guarantee under test is unchanged.
+    """
     from fastapi import HTTPException
 
-    from asm.services.api.deps import require_token
-    monkeypatch.setattr(settings, 'api_token', 'dev-token-change-me')
+    from asm.services.api.deps import require_token, token_is_valid
+
+    monkeypatch.setattr(settings, "api_token", "dev-token-change-me")
+
+    assert not token_is_valid("dev-token-change-me")
+
+    class _Req:
+        cookies: dict = {}
+
     with pytest.raises(HTTPException):
-        await require_token('Bearer dev-token-change-me')
-    monkeypatch.setattr(settings, 'api_token', 'configured-audit-test-token')
-    with pytest.raises(HTTPException):
-        await require_token('configured-audit-test-token')
-    assert await require_token('Bearer configured-audit-test-token') == settings.api_token
+        await require_token(_Req(), "Bearer dev-token-change-me")

@@ -32,6 +32,12 @@ async def redis():
     finally:
         await r.flushdb()
         await client.close_redis()
+        # The SQLAlchemy engine's pool is bound to the loop that created it, exactly
+        # like the redis pool. Tests that touch the database across loops otherwise
+        # fail with "Event loop is closed".
+        from asm.db import session as db_session
+
+        await db_session.engine.dispose()
 
 
 @pytest.fixture

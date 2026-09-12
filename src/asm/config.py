@@ -193,6 +193,10 @@ class Settings(BaseSettings):
     # AI layer (PRD 40) - advisory only, never in the decision path. Off without a key.
     anthropic_api_key: str = ""
 
+    # Dashboard sessions (PRD 49). The browser gets an httpOnly cookie, not the token.
+    session_ttl_seconds: int = 43_200      # 12 hours, sliding on use
+    session_cookie_secure: bool = False    # set true when served over HTTPS
+
     api_token: str = "dev-token-change-me"
 
     copyability: CopyabilityConfig = Field(default_factory=CopyabilityConfig)
