@@ -95,3 +95,26 @@ def test_dashboard_never_stores_the_token():
     js = html[html.index("<script>"):]
     for forbidden in ("localStorage", "sessionStorage", "asm_token", "Bearer "):
         assert forbidden not in js, f"dashboard must not use {forbidden}"
+
+
+# ------------------------------------------------- Secure flag, decided per request
+async def test_cookie_is_not_secure_on_plain_localhost(client, token):
+    """Marking it Secure on http would stop the browser sending it at all."""
+    r = await client.post("/auth/login", json={"password": token})
+    assert "Secure" not in r.headers.get("set-cookie", "")
+
+
+async def test_cookie_is_secure_over_https(redis, token):
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="https://example.com") as c:
+        r = await c.post("/auth/login", json={"password": token})
+        assert "Secure" in r.headers.get("set-cookie", "")
+
+
+async def test_cookie_is_secure_behind_a_tls_proxy(redis, token):
+    """The app sees plain http behind nginx/Caddy; X-Forwarded-Proto is the signal."""
+    async with AsyncClient(transport=ASGITransport(app=app),
+                           base_url="http://example.com") as c:
+        r = await c.post("/auth/login", json={"password": token},
+                         headers={"x-forwarded-proto": "https"})
+        assert "Secure" in r.headers.get("set-cookie", "")

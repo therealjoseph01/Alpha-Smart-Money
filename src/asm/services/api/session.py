@@ -35,6 +35,25 @@ def _key(sid: str) -> str:
     return f"{PREFIX}{sid}"
 
 
+def is_https(request: Request) -> bool:
+    """Whether this request arrived over HTTPS.
+
+    Decided per request rather than by a config flag, so the same build is correct on
+    localhost and behind a TLS proxy with nothing to remember. Marking the cookie
+    Secure on plain-http localhost would stop the browser sending it at all; NOT
+    marking it behind HTTPS would let the session travel in clear text.
+
+    X-Forwarded-Proto is what a reverse proxy (nginx, Caddy, a load balancer) sets
+    after terminating TLS, since the app itself then sees plain http.
+    """
+    if settings.session_cookie_secure:
+        return True                            # explicit override, if ever needed
+    forwarded = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    if forwarded:
+        return forwarded.lower() == "https"
+    return request.url.scheme == "https"
+
+
 async def create(request: Request, response: Response) -> str:
     """Issue a session and set it as an httpOnly cookie."""
     sid = secrets.token_urlsafe(32)
@@ -48,16 +67,16 @@ async def create(request: Request, response: Response) -> str:
     })
     await get_redis().expire(_key(sid), ttl)
 
+    secure = is_https(request)
     response.set_cookie(
         COOKIE_NAME, sid,
         max_age=ttl,
         httponly=True,                       # unreadable from JavaScript
         samesite="lax",                      # blocks cross-site form CSRF
-        # Secure would break plain-http localhost, which is the normal case here.
-        secure=settings.session_cookie_secure,
+        secure=secure,                       # set automatically - see is_https()
         path="/",
     )
-    log.info("session_created", ip=client, ttl_seconds=ttl)
+    log.info("session_created", ip=client, ttl_seconds=ttl, https=secure)
     return sid
 
 

@@ -195,7 +195,9 @@ class Settings(BaseSettings):
 
     # Dashboard sessions (PRD 49). The browser gets an httpOnly cookie, not the token.
     session_ttl_seconds: int = 43_200      # 12 hours, sliding on use
-    session_cookie_secure: bool = False    # set true when served over HTTPS
+    # Normally leave false: HTTPS is detected per request. Only force it true if
+    # you terminate TLS somewhere that does not set X-Forwarded-Proto.
+    session_cookie_secure: bool = False
 
     api_token: str = "dev-token-change-me"
 
